@@ -1,0 +1,511 @@
+<!doctype html>
+<html lang="tr">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>AXIS Mimari Haritası</title>
+    <style>
+      :root {
+        color-scheme: dark;
+        --bg: #0b1017;
+        --panel: #111a24;
+        --panel-2: #162231;
+        --line: #33465e;
+        --line-strong: #5f7fa5;
+        --text: #e8eef6;
+        --muted: #9fb0c4;
+        --blue: #5da9e9;
+        --green: #64c18a;
+        --amber: #d6a94f;
+        --red: #e06b6b;
+        --violet: #9a8cff;
+        --shadow: 0 20px 70px rgba(0, 0, 0, 0.35);
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0;
+        min-height: 100vh;
+        background: var(--bg);
+        color: var(--text);
+        font-family:
+          Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+        letter-spacing: 0;
+      }
+
+      .page {
+        width: min(1440px, 100%);
+        margin: 0 auto;
+        padding: 28px;
+      }
+
+      header {
+        display: grid;
+        grid-template-columns: 1fr auto;
+        gap: 20px;
+        align-items: end;
+        margin-bottom: 22px;
+      }
+
+      h1 {
+        margin: 0;
+        font-size: clamp(26px, 3vw, 42px);
+        line-height: 1.06;
+        font-weight: 750;
+      }
+
+      .subtitle {
+        margin: 10px 0 0;
+        max-width: 900px;
+        color: var(--muted);
+        font-size: 15px;
+        line-height: 1.55;
+      }
+
+      .badge {
+        justify-self: end;
+        border: 1px solid var(--line);
+        background: #0f1721;
+        color: var(--muted);
+        padding: 10px 12px;
+        border-radius: 6px;
+        font-size: 13px;
+        white-space: nowrap;
+      }
+
+      .map {
+        display: grid;
+        grid-template-columns: 1fr 1.35fr 1fr;
+        gap: 18px;
+        align-items: stretch;
+      }
+
+      .column,
+      .rail {
+        display: grid;
+        gap: 14px;
+      }
+
+      .rail {
+        grid-template-rows: auto auto 1fr;
+      }
+
+      .section {
+        border: 1px solid var(--line);
+        background: var(--panel);
+        border-radius: 8px;
+        box-shadow: var(--shadow);
+        padding: 16px;
+      }
+
+      .section h2 {
+        margin: 0 0 12px;
+        color: #f5f8fc;
+        font-size: 15px;
+        font-weight: 720;
+      }
+
+      .node {
+        position: relative;
+        border: 1px solid var(--line);
+        background: var(--panel-2);
+        border-radius: 8px;
+        padding: 14px;
+        min-height: 92px;
+      }
+
+      .node + .node {
+        margin-top: 12px;
+      }
+
+      .label {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        margin-bottom: 8px;
+        font-weight: 720;
+        font-size: 15px;
+      }
+
+      .dot {
+        width: 10px;
+        height: 10px;
+        border-radius: 50%;
+        background: var(--blue);
+        box-shadow: 0 0 0 4px rgba(93, 169, 233, 0.12);
+        flex: 0 0 auto;
+      }
+
+      .node p,
+      .section p {
+        margin: 0;
+        color: var(--muted);
+        font-size: 13px;
+        line-height: 1.45;
+      }
+
+      .gate {
+        border-color: rgba(93, 169, 233, 0.75);
+        background: #102033;
+      }
+
+      .policy .dot {
+        background: var(--violet);
+        box-shadow: 0 0 0 4px rgba(154, 140, 255, 0.12);
+      }
+
+      .allow .dot {
+        background: var(--green);
+        box-shadow: 0 0 0 4px rgba(100, 193, 138, 0.12);
+      }
+
+      .approval .dot {
+        background: var(--amber);
+        box-shadow: 0 0 0 4px rgba(214, 169, 79, 0.12);
+      }
+
+      .block .dot,
+      .failure .dot {
+        background: var(--red);
+        box-shadow: 0 0 0 4px rgba(224, 107, 107, 0.12);
+      }
+
+      .core {
+        border: 1px solid var(--line-strong);
+        background: #0f1924;
+        border-radius: 10px;
+        padding: 18px;
+        display: grid;
+        gap: 14px;
+        box-shadow: var(--shadow);
+      }
+
+      .core-title {
+        display: grid;
+        grid-template-columns: 1fr auto;
+        align-items: center;
+        gap: 12px;
+      }
+
+      .core-title h2 {
+        margin: 0;
+        font-size: 18px;
+      }
+
+      .status {
+        border: 1px solid rgba(100, 193, 138, 0.5);
+        color: #b9e8c8;
+        border-radius: 999px;
+        padding: 5px 9px;
+        font-size: 12px;
+        white-space: nowrap;
+      }
+
+      .pipeline {
+        display: grid;
+        grid-template-columns: repeat(5, minmax(0, 1fr));
+        gap: 10px;
+      }
+
+      .step {
+        min-height: 130px;
+        border: 1px solid var(--line);
+        background: #142033;
+        border-radius: 8px;
+        padding: 12px;
+      }
+
+      .step b {
+        display: block;
+        font-size: 13px;
+        margin-bottom: 8px;
+      }
+
+      .step span {
+        color: var(--muted);
+        font-size: 12px;
+        line-height: 1.42;
+      }
+
+      .decision-grid {
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 10px;
+      }
+
+      .decision {
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        padding: 12px;
+        min-height: 112px;
+      }
+
+      .decision strong {
+        display: block;
+        font-size: 14px;
+        margin-bottom: 6px;
+      }
+
+      .decision small {
+        color: var(--muted);
+        line-height: 1.4;
+        display: block;
+      }
+
+      .decision.allow {
+        background: rgba(100, 193, 138, 0.08);
+        border-color: rgba(100, 193, 138, 0.45);
+      }
+
+      .decision.approval {
+        background: rgba(214, 169, 79, 0.08);
+        border-color: rgba(214, 169, 79, 0.45);
+      }
+
+      .decision.block {
+        background: rgba(224, 107, 107, 0.08);
+        border-color: rgba(224, 107, 107, 0.45);
+      }
+
+      .connector {
+        height: 34px;
+        display: grid;
+        place-items: center;
+        color: var(--line-strong);
+        font-size: 20px;
+      }
+
+      .failure-list {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 8px;
+        margin-top: 12px;
+      }
+
+      .chip {
+        border: 1px solid rgba(224, 107, 107, 0.35);
+        background: rgba(224, 107, 107, 0.08);
+        color: #ffc8c8;
+        border-radius: 6px;
+        padding: 8px;
+        font-size: 12px;
+        line-height: 1.35;
+      }
+
+      .legend {
+        display: grid;
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+        gap: 10px;
+        margin-top: 18px;
+      }
+
+      .legend-item {
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        background: #0f1721;
+        padding: 12px;
+        min-height: 78px;
+      }
+
+      .legend-item b {
+        display: block;
+        margin-bottom: 6px;
+        font-size: 13px;
+      }
+
+      .legend-item span {
+        color: var(--muted);
+        font-size: 12px;
+        line-height: 1.35;
+      }
+
+      @media (max-width: 1040px) {
+        .map {
+          grid-template-columns: 1fr;
+        }
+
+        .pipeline,
+        .decision-grid,
+        .legend {
+          grid-template-columns: 1fr;
+        }
+
+        header {
+          grid-template-columns: 1fr;
+        }
+
+        .badge {
+          justify-self: start;
+        }
+      }
+
+      @media (max-width: 640px) {
+        .page {
+          padding: 18px;
+        }
+
+        .failure-list {
+          grid-template-columns: 1fr;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <main class="page">
+      <header>
+        <div>
+          <h1>AXIS Mimari Haritası</h1>
+          <p class="subtitle">
+            Production veritabanı operasyonu çalışmadan önce parse edilir, policy ile değerlendirilir,
+            karar verilir ve kritik adımlar audit evidence zincirine bağlanır.
+          </p>
+        </div>
+        <div class="badge">Tek dosya HTML + CSS · Harici bağımlılık yok</div>
+      </header>
+
+      <section class="map" aria-label="AXIS mimari haritası">
+        <div class="column">
+          <div class="section">
+            <h2>Çağıran taraf</h2>
+            <div class="node">
+              <div class="label"><span class="dot"></span>Uygulama ve servis</div>
+              <p>Backend, worker, internal tool veya script SQL isteğini AXIS'e gönderir.</p>
+            </div>
+            <div class="node">
+              <div class="label"><span class="dot"></span>AI agent, yapay zeka aracı</div>
+              <p>Agent kaynaklı write işlemleri ayrı risk sınıfı olarak policy ile değerlendirilebilir.</p>
+            </div>
+            <div class="node failure">
+              <div class="label"><span class="dot"></span>Doğrudan DB kaçışı</div>
+              <p>AXIS'ten geçmeyen write trafiği AXIS tarafından korunmaz; deployment bunu kapatmalıdır.</p>
+            </div>
+          </div>
+
+          <div class="section">
+            <h2>Control Plane sınırı</h2>
+            <div class="node">
+              <div class="label"><span class="dot"></span>Browser</div>
+              <p>Operator token veya backend URL görmemelidir.</p>
+            </div>
+            <div class="node policy">
+              <div class="label"><span class="dot"></span>Sunucu tarafı proxy</div>
+              <p>İzin listesi uygular, token'ı sunucu tarafında ekler ve AXIS backend'e gider.</p>
+            </div>
+          </div>
+        </div>
+
+        <div class="core">
+          <div class="core-title">
+            <h2>AXIS Kapısı</h2>
+            <div class="status">Execution öncesi policy</div>
+          </div>
+
+          <div class="pipeline">
+            <div class="step">
+              <b>1. İsteği doğrula</b>
+              <span>JSON, boyut, rate limit, identity context ve temel alanlar kontrol edilir.</span>
+            </div>
+            <div class="step">
+              <b>2. Parse et ve sınıflandır</b>
+              <span>SQL operation, target, scope ve risk sinyalleri çıkarılır.</span>
+            </div>
+            <div class="step">
+              <b>3. Policy motoru</b>
+              <span>Aktif policy, policy id, version ve SHA-256 ile karar üretir.</span>
+            </div>
+            <div class="step">
+              <b>4. Karar</b>
+              <span>ALLOW, BLOCK veya REQUIRE_APPROVAL sonucu response ve evidence'a taşınır.</span>
+            </div>
+            <div class="step">
+              <b>5. Kanıt</b>
+              <span>WAL event, previous_hash ve event_hash ile zincire eklenir.</span>
+            </div>
+          </div>
+
+          <div class="connector">↓</div>
+
+          <div class="decision-grid">
+            <div class="decision allow">
+              <strong>ALLOW</strong>
+              <small>Karar evidence commit sonrası PostgreSQL adapter üzerinden execution.</small>
+            </div>
+            <div class="decision approval">
+              <strong>APPROVAL_REQUIRED</strong>
+              <small>İlk istek çalışmaz. Bekleyen approval oluşur ve aynı bağlamla retry gerekir.</small>
+            </div>
+            <div class="decision block">
+              <strong>BLOCK</strong>
+              <small>SQL PostgreSQL'e gönderilmez. Parser, policy veya fail-safe kaynaklı olabilir.</small>
+            </div>
+          </div>
+        </div>
+
+        <div class="rail">
+          <div class="section">
+            <h2>Korunan hedef</h2>
+            <div class="node allow">
+              <div class="label"><span class="dot"></span>Database adapter</div>
+              <p>Sadece izin verilen execution path PostgreSQL'e gider.</p>
+            </div>
+            <div class="node allow">
+              <div class="label"><span class="dot"></span>Production PostgreSQL</div>
+              <p>Veri değişimi burada olur; protected write path'in AXIS'ten geçmesi gerekir.</p>
+            </div>
+          </div>
+
+          <div class="section">
+            <h2>Evidence katmanı</h2>
+            <div class="node">
+              <div class="label"><span class="dot"></span>Audit WAL</div>
+              <p>Security evidence için source of truth kabul edilir.</p>
+            </div>
+            <div class="node">
+              <div class="label"><span class="dot"></span>JSONL projection</div>
+              <p>Operatör kolaylığı sağlar; WAL'ın yerine geçmez.</p>
+            </div>
+            <div class="node">
+              <div class="label"><span class="dot"></span>Evidence export</div>
+              <p>Seçili event'leri verification metadata ile taşınabilir hale getirir.</p>
+            </div>
+          </div>
+
+          <div class="section failure">
+            <h2>Hata modları</h2>
+            <p>Riskli durumda fail-closed davranış beklenir.</p>
+            <div class="failure-list">
+              <div class="chip">Audit yazılamazsa protected execution durur.</div>
+              <div class="chip">Policy invalid ise başlangıç fail-fast olur.</div>
+              <div class="chip">Parser failure unsupported SQL'i allow etmez.</div>
+              <div class="chip">Approval store bozuksa unsafe resolve yapılmaz.</div>
+              <div class="chip">DB timeout execution state unknown olarak raporlanır.</div>
+              <div class="chip">Evidence commit failure sessiz başarı değildir.</div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="legend" aria-label="Harita notları">
+        <div class="legend-item">
+          <b>Politika</b>
+          <span>Karar, identity tek başına değil SQL operation ve context üzerinden verilir.</span>
+        </div>
+        <div class="legend-item">
+          <b>Onay</b>
+          <span>Onay execution değildir; approved retry exact-context kontrolünden geçer.</span>
+        </div>
+        <div class="legend-item">
+          <b>Audit kanıtı</b>
+          <span>WAL, event_hash ve previous_hash ile doğrulanabilir evidence üretir.</span>
+        </div>
+        <div class="legend-item">
+          <b>Limit</b>
+          <span>AXIS'ten kaçan doğrudan database write trafiği deployment sorumluluğudur.</span>
+        </div>
+      </section>
+    </main>
+  </body>
+</html>

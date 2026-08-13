@@ -1,0 +1,967 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>VARUX AXIS | Technical Documentation</title>
+<meta name="description" content="Technical documentation for VARUX AXIS: deterministic PostgreSQL write-path control. Architecture, security model, ORM compatibility, audit evidence, verification and current limitations — sourced from the AXIS documentation repository.">
+<style>
+  :root {
+    --bg: #020202;
+    --bg-2: #060608;
+    --bg-3: #0a0a0d;
+    --panel: #0d0d12;
+    --line: rgba(255,255,255,0.07);
+    --line-2: rgba(255,255,255,0.14);
+    --text: #d1d5db;
+    --text-dim: #8b9099;
+    --text-faint: #5b606a;
+    --cyan: #00e5ff;
+    --cyan-dim: #0088ff;
+    --active: #00ff66;
+    --control: #00d4ff;
+    --warning: #ffaa00;
+    --blocked: #ff3366;
+    --mono: ui-monospace, "Cascadia Mono", "JetBrains Mono", "Fira Code", Consolas, "Courier New", monospace;
+    --sans: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html { scroll-behavior: smooth; scrollbar-width: thin; scrollbar-color: rgba(0,229,255,0.45) #020202; }
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--sans);
+    font-weight: 300;
+    line-height: 1.65;
+    -webkit-font-smoothing: antialiased;
+  }
+  ::-webkit-scrollbar { width: 10px; height: 10px; }
+  ::-webkit-scrollbar-track { background: linear-gradient(180deg, #020202 0%, #060608 100%); }
+  ::-webkit-scrollbar-thumb { background: linear-gradient(180deg, rgba(0,229,255,0.55), rgba(0,212,255,0.22)); border: 2px solid #020202; border-radius: 999px; }
+  ::selection { background: rgba(0,229,255,0.2); color: var(--cyan); }
+
+  /* ---------- nav ---------- */
+  nav {
+    position: fixed; top: 0; left: 0; right: 0; z-index: 40;
+    background: rgba(6,6,8,0.92); backdrop-filter: blur(12px);
+    border-bottom: 1px solid var(--line);
+  }
+  .nav-inner {
+    max-width: 1200px; margin: 0 auto; padding: 0 24px; height: 64px;
+    display: flex; align-items: center; justify-content: space-between;
+  }
+  .brand { display: flex; align-items: center; gap: 10px; color: #fff; text-decoration: none; font-family: var(--mono); font-size: 13px; letter-spacing: 0.18em; font-weight: 500; }
+  .brand .box { width: 20px; height: 20px; border: 2px solid rgba(0,255,102,0.8); display: flex; align-items: center; justify-content: center; }
+  .brand .box i { width: 8px; height: 8px; background: var(--active); }
+  .brand .dim { color: var(--text-faint); }
+  .nav-links { display: flex; gap: 28px; font-family: var(--mono); font-size: 11px; letter-spacing: 0.05em; }
+  .nav-links a { color: var(--text-dim); text-decoration: none; padding: 4px 6px; }
+  .nav-links a:hover { color: #fff; }
+  .nav-links a.on { color: var(--cyan); }
+  .nav-toggle { display: none; background: none; border: none; color: var(--text-dim); font-family: var(--mono); font-size: 18px; cursor: pointer; }
+  #mobile-menu { display: none; background: rgba(2,2,3,0.97); border-bottom: 1px solid var(--line); padding: 12px 24px 20px; flex-direction: column; gap: 4px; font-family: var(--mono); font-size: 13px; }
+  #mobile-menu a { color: var(--text-dim); text-decoration: none; padding: 10px 0; border-bottom: 1px solid rgba(255,255,255,0.05); }
+  @media (max-width: 860px) { .nav-links { display: none; } .nav-toggle { display: block; } }
+
+  /* ---------- layout ---------- */
+  main { padding-top: 64px; }
+  section { padding: 72px 24px; border-bottom: 1px solid var(--line); scroll-margin-top: 84px; position: relative; }
+  .wrap { max-width: 1200px; margin: 0 auto; }
+  h1, h2, h3, h4 { color: #fff; font-weight: 500; letter-spacing: -0.01em; }
+  h2 { font-size: 28px; margin-bottom: 10px; }
+  h3 { font-size: 17px; margin: 26px 0 10px; }
+  h4 { font-size: 13px; font-family: var(--mono); text-transform: uppercase; letter-spacing: 0.12em; color: var(--cyan); margin: 22px 0 8px; }
+  p { font-size: 14.5px; color: var(--text); margin-bottom: 12px; }
+  .lead { color: var(--text-dim); font-size: 15px; max-width: 780px; margin-bottom: 28px; }
+  .kicker { font-family: var(--mono); font-size: 10px; letter-spacing: 0.22em; color: var(--cyan); margin-bottom: 8px; text-transform: uppercase; }
+  .kicker.amber { color: var(--warning); }
+  .kicker.red { color: var(--blocked); }
+  .kicker.green { color: var(--active); }
+
+  /* ---------- cards / panels ---------- */
+  .panel { background: rgba(10,10,13,0.75); border: 1px solid var(--line); border-radius: 10px; padding: 20px; margin: 14px 0; }
+  .grid2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 16px; margin: 16px 0; }
+  .grid4 { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 16px; margin: 16px 0; }
+  .tag { display: inline-block; font-family: var(--mono); font-size: 10px; letter-spacing: 0.14em; text-transform: uppercase; padding: 3px 10px; border-radius: 999px; border: 1px solid var(--line-2); color: var(--text-dim); margin-bottom: 10px; }
+  .tag.cyan { color: var(--cyan); border-color: rgba(0,229,255,0.35); background: rgba(0,229,255,0.05); }
+  .tag.green { color: var(--active); border-color: rgba(0,255,102,0.3); background: rgba(0,255,102,0.05); }
+  .tag.amber { color: var(--warning); border-color: rgba(255,170,0,0.3); background: rgba(255,170,0,0.05); }
+  .tag.red { color: var(--blocked); border-color: rgba(255,51,102,0.3); background: rgba(255,51,102,0.05); }
+
+  /* ---------- code ---------- */
+  pre {
+    background: #050507; border: 1px solid var(--line); border-radius: 8px;
+    padding: 16px 18px; overflow-x: auto; margin: 12px 0 18px;
+    font-family: var(--mono); font-size: 12.5px; line-height: 1.7; color: #c9d2dc;
+  }
+  code { font-family: var(--mono); font-size: 0.92em; background: rgba(0,229,255,0.07); color: var(--cyan); padding: 1px 5px; border-radius: 4px; }
+  pre code { background: none; color: inherit; padding: 0; }
+  .c-cyan { color: var(--cyan); }
+  .c-green { color: var(--active); }
+  .c-amber { color: var(--warning); }
+  .c-red { color: var(--blocked); }
+  .c-dim { color: var(--text-faint); }
+  .c-white { color: #fff; }
+
+  /* ---------- tables ---------- */
+  .tbl-wrap { overflow-x: auto; margin: 16px 0 20px; border: 1px solid var(--line); border-radius: 8px; }
+  table { width: 100%; border-collapse: collapse; font-size: 12.5px; min-width: 640px; }
+  th { font-family: var(--mono); font-size: 10.5px; text-transform: uppercase; letter-spacing: 0.1em; color: var(--text-dim); text-align: left; padding: 10px 12px; background: var(--bg-3); border-bottom: 1px solid var(--line-2); white-space: nowrap; }
+  td { padding: 10px 12px; border-bottom: 1px solid rgba(255,255,255,0.045); vertical-align: top; }
+  tr:last-child td { border-bottom: none; }
+  td b { color: #fff; font-weight: 500; }
+  td.ok { color: var(--active); font-family: var(--mono); font-size: 11.5px; }
+  td.no { color: var(--warning); font-family: var(--mono); font-size: 11.5px; }
+  td.gate { color: var(--cyan); font-family: var(--mono); font-size: 11.5px; }
+
+  /* ---------- status badges ---------- */
+  .badge { display: inline-block; font-family: var(--mono); font-size: 10.5px; font-weight: 500; padding: 2px 10px; border-radius: 5px; border: 1px solid; margin-right: 6px; }
+  .badge.allow { color: var(--active); border-color: rgba(0,255,102,0.4); background: rgba(0,255,102,0.07); }
+  .badge.block { color: var(--blocked); border-color: rgba(255,51,102,0.4); background: rgba(255,51,102,0.07); }
+  .badge.appr { color: var(--warning); border-color: rgba(255,170,0,0.4); background: rgba(255,170,0,0.07); }
+  .badge.done { color: var(--active); border-color: rgba(0,255,102,0.4); background: rgba(0,255,102,0.07); }
+  .badge.wip { color: var(--cyan); border-color: rgba(0,229,255,0.4); background: rgba(0,229,255,0.07); }
+  .badge.gap { color: var(--blocked); border-color: rgba(255,51,102,0.4); background: rgba(255,51,102,0.07); }
+  .badge.warn { color: var(--warning); border-color: rgba(255,170,0,0.4); background: rgba(255,170,0,0.07); }
+
+  /* ---------- flow diagram (pure CSS) ---------- */
+  .flow { display: flex; flex-direction: column; gap: 4px; align-items: stretch; margin: 18px 0; }
+  .flow-row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+  .node { flex: 1; min-width: 150px; background: var(--bg-3); border: 1px solid var(--line); border-radius: 8px; padding: 12px 14px; font-family: var(--mono); font-size: 11.5px; color: var(--text); text-align: center; }
+  .node.key { border-color: rgba(0,229,255,0.35); color: var(--cyan); }
+  .node.amber { border-color: rgba(255,170,0,0.3); color: var(--warning); }
+  .node.red { border-color: rgba(255,51,102,0.3); color: var(--blocked); }
+  .node.green { border-color: rgba(0,255,102,0.3); color: var(--active); }
+  .node .sub { display: block; font-size: 9.5px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--text-faint); margin-bottom: 4px; }
+  .arrow { font-family: var(--mono); color: var(--text-faint); font-size: 14px; text-align: center; flex: 0 0 auto; }
+  .branch { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px; margin: 6px 0 0 0; }
+  .branch .node { min-width: 0; }
+  @media (max-width: 640px) { .flow-row { flex-direction: column; } .arrow { transform: rotate(90deg); } .branch { grid-template-columns: 1fr; } }
+
+  /* ---------- hero ---------- */
+  #top { padding-top: 120px; }
+  .hero-band { display: inline-flex; gap: 8px; align-items: center; padding: 6px 14px; border: 1px solid rgba(0,229,255,0.25); border-radius: 999px; background: rgba(0,229,255,0.05); font-family: var(--mono); font-size: 10px; letter-spacing: 0.18em; color: var(--cyan); margin-bottom: 22px; }
+  .hero-band .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--cyan); animation: pulse 2.4s infinite; }
+  @keyframes pulse { 0%,100% { opacity: .4; } 50% { opacity: 1; } }
+  .status-strip { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 1px; background: var(--line); border: 1px solid var(--line); border-radius: 10px; overflow: hidden; margin: 24px 0 10px; }
+  .status-strip .cell { background: var(--bg-2); padding: 14px 18px; }
+  .status-strip .lbl { font-family: var(--mono); font-size: 9.5px; text-transform: uppercase; letter-spacing: 0.16em; color: var(--text-faint); margin-bottom: 6px; }
+  .status-strip .val { font-family: var(--mono); font-size: 12.5px; color: var(--text); }
+  .status-strip .val.cyan { color: var(--cyan); }
+
+  /* ---------- review paths ---------- */
+  .path-card { display: flex; flex-direction: column; border: 1px solid var(--line); border-radius: 10px; padding: 22px; background: rgba(10,10,13,0.6); }
+  .path-card:hover { border-color: rgba(0,229,255,0.3); }
+  .path-card h3 { margin: 8px 0 8px; font-size: 15px; }
+  .path-card p { font-size: 12.5px; color: var(--text-dim); flex-grow: 1; }
+  .path-links { display: flex; flex-direction: column; gap: 6px; margin-top: 14px; font-family: var(--mono); font-size: 11.5px; }
+  .path-links a { color: var(--text-dim); text-decoration: none; }
+  .path-links a:hover { color: var(--cyan); }
+  .path-links a::before { content: "› "; color: var(--text-faint); }
+
+  /* ---------- limitations two columns ---------- */
+  .lim-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-top: 16px; }
+  @media (max-width: 860px) { .lim-grid { grid-template-columns: 1fr; } }
+  .lim-col { border: 1px solid var(--line); border-radius: 10px; padding: 22px; background: rgba(10,10,13,0.6); }
+  .lim-col h3 { margin: 0 0 14px; font-size: 14px; font-family: var(--mono); text-transform: uppercase; letter-spacing: 0.12em; }
+  .lim-col.done h3 { color: var(--active); }
+  .lim-col.gap h3 { color: var(--text-dim); }
+  .lim-col ul { list-style: none; }
+  .lim-col li { font-size: 13px; color: var(--text); padding: 7px 0 7px 18px; position: relative; border-bottom: 1px solid rgba(255,255,255,0.04); }
+  .lim-col li:last-child { border-bottom: none; }
+  .lim-col.done li::before { content: "✓"; position: absolute; left: 0; color: var(--active); font-family: var(--mono); font-size: 11px; top: 9px; }
+  .lim-col.gap li::before { content: "×"; position: absolute; left: 0; color: var(--blocked); font-family: var(--mono); font-size: 11px; top: 9px; }
+
+  /* ---------- misc ---------- */
+  .note { font-family: var(--mono); font-size: 11.5px; color: var(--text-dim); border-left: 2px solid var(--cyan-dim); padding: 8px 14px; margin: 14px 0; background: rgba(0,136,255,0.04); }
+  .note.amber { border-color: var(--warning); background: rgba(255,170,0,0.04); }
+  .note.red { border-color: var(--blocked); background: rgba(255,51,102,0.04); }
+  .pill-row { display: flex; flex-wrap: wrap; gap: 8px; margin: 10px 0 16px; }
+  .pill { font-family: var(--mono); font-size: 10.5px; color: var(--text-dim); border: 1px solid var(--line-2); padding: 4px 10px; border-radius: 5px; background: var(--bg-3); }
+  .pill::before { content: "#"; color: var(--text-faint); margin-right: 3px; }
+  .anchor { scroll-margin-top: 84px; }
+  footer { padding: 36px 24px; text-align: center; font-family: var(--mono); font-size: 11px; color: var(--text-faint); }
+  footer a { color: var(--text-dim); }
+  footer a:hover { color: var(--cyan); }
+</style>
+</head>
+<body>
+
+<!-- ================= NAV ================= -->
+<nav>
+  <div class="nav-inner">
+    <a class="brand" href="#top"><span class="box"><i></i></span>VARUX <span class="dim">AXIS</span></a>
+    <div class="nav-links" id="nav-links">
+      <a href="#top">Home</a>
+      <a href="#product">Product</a>
+      <a href="#architecture">Architecture</a>
+      <a href="#control-panel">Control Panel</a>
+      <a href="#security-model">Security Model</a>
+      <a href="#pilot">Pilot</a>
+      <a href="#quickstart" class="on">Docs</a>
+    </div>
+    <button class="nav-toggle" id="nav-toggle" aria-label="Menu">☰</button>
+  </div>
+  <div id="mobile-menu"></div>
+</nav>
+
+<main>
+
+<!-- ================= HERO / PRODUCT ================= -->
+<section id="top">
+  <div class="wrap">
+    <div class="hero-band"><span class="dot"></span>VARUX AXIS / TECHNICAL DOCUMENTATION</div>
+    <h1 style="font-size:36px;line-height:1.15;margin-bottom:14px;">Deterministic PostgreSQL write-path control.<br><span style="color:var(--text-faint);">The engineering record, not the pitch.</span></h1>
+    <p class="lead">This page is generated from the AXIS documentation repository (RFCs, hardening reports, test results, pilot evidence, and technical notes). Every statement below is sourced from those files. Where the repository distinguishes implemented behavior from planned work, this page preserves that distinction. Security products lose trust when gaps are hidden.</p>
+
+    <div class="status-strip">
+      <div class="cell">
+        <div class="lbl">Current milestone (repo state)</div>
+        <div class="val cyan">Local hardened v1 security core · runtime through v0.9 (manifest-based policy startup)</div>
+      </div>
+      <div class="cell">
+        <div class="lbl">Newest dated evidence in repo</div>
+        <div class="val">Driver matrix 2026-07-05 · CancelRequest RFC-032 2026-07-10 · SCC v1.0 locked 2026-08-07</div>
+      </div>
+      <div class="cell">
+        <div class="lbl">Suitable for</div>
+        <div class="val">Controlled demos · local review · non-production pilot · ORM driver evaluation</div>
+      </div>
+      <div class="cell">
+        <div class="lbl">Not yet</div>
+        <div class="val">Compliance-certified enterprise production release</div>
+      </div>
+    </div>
+    <div style="font-family:var(--mono);font-size:10.5px;color:var(--text-faint);margin-top:8px;">Note: varuxcyber.com/axis.html still shows "v0.6 Pilot Readiness". This page reflects the newest state in this documentation folder instead.</div>
+
+    <div id="product" class="anchor" style="margin-top:40px;">
+      <h3 style="font-size:20px;">What AXIS is</h3>
+      <p>AXIS is a deterministic control layer for PostgreSQL write paths. It sits between applications, operators, scripts or AI agents and the database, classifies SQL, evaluates versioned policy, enforces the decision, and records durable audit evidence. The current package is designed for local technical review and pilot planning; it shows how the core enforcement, audit, approval, visibility, and policy lifecycle pieces fit together.</p>
+      <div class="grid2">
+        <div class="panel">
+          <h4>AXIS is</h4>
+          <ul style="list-style:none;font-size:13.5px;">
+            <li style="padding:4px 0;">— deterministic PostgreSQL write-path control</li>
+            <li style="padding:4px 0;">— a controlled execution gateway (Gate)</li>
+            <li style="padding:4px 0;">— a policy-enforced decision layer</li>
+            <li style="padding:4px 0;">— an approval boundary for risky operations</li>
+            <li style="padding:4px 0;">— a durable audit evidence generator</li>
+            <li style="padding:4px 0;">— an operator visibility and policy lifecycle surface</li>
+          </ul>
+        </div>
+        <div class="panel">
+          <h4 style="color:var(--text-dim);">AXIS is not</h4>
+          <ul style="list-style:none;font-size:13.5px;color:var(--text-dim);">
+            <li style="padding:4px 0;">— WAF, SIEM, or DLP</li>
+            <li style="padding:4px 0;">— SQL injection detector</li>
+            <li style="padding:4px 0;">— masking/encryption product</li>
+            <li style="padding:4px 0;">— query optimizer</li>
+            <li style="padding:4px 0;">— full drop-in PostgreSQL wire-protocol proxy</li>
+            <li style="padding:4px 0;">— PgBouncer / connection pooler replacement</li>
+            <li style="padding:4px 0;">— replacement for application authorization</li>
+            <li style="padding:4px 0;">— a guarantee that "ALLOW" means the operation is semantically safe</li>
+            <li style="padding:4px 0;">— compliance-certified release</li>
+          </ul>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ================= REVIEW PATHS ================= -->
+<section id="pilot" style="background:var(--bg-2);">
+  <div class="wrap">
+    <div class="kicker">Choose your review path</div>
+    <h2>Four readers, four entry points.</h2>
+    <p class="lead">AXIS is documented for different technical audiences without hiding its current limits. Each path jumps straight to the sections that matter for its review.</p>
+    <div class="grid4">
+      <div class="path-card">
+        <span class="tag red">Threat / Evidence</span>
+        <h3>Security Reviewer</h3>
+        <p>Start with enforcement behavior, fail-closed guarantees, approval boundaries, transport security status and how audit evidence is produced and verified.</p>
+        <div class="path-links">
+          <a href="#security-model">Security Model</a>
+          <a href="#evidence">Evidence &amp; hash chain</a>
+          <a href="#verification">Verification &amp; test discipline</a>
+          <a href="#current-limitations">Honest limitations</a>
+        </div>
+      </div>
+      <div class="path-card">
+        <span class="tag cyan">Architecture / Operations</span>
+        <h3>Platform Engineer</h3>
+        <p>Review write-path placement, control plane expectations, local deployment, environment variables, and what a production topology must add.</p>
+        <div class="path-links">
+          <a href="#quickstart">Quickstart &amp; config</a>
+          <a href="#architecture">Architecture flow</a>
+          <a href="#control-panel">Control Panel</a>
+          <a href="#orm-compatibility">Driver / ORM matrix</a>
+        </div>
+      </div>
+      <div class="path-card">
+        <span class="tag green">Local / Non-production</span>
+        <h3>Pilot Evaluator</h3>
+        <p>Run the local stack, reproduce the evidence package, and evaluate the supported ORM paths and the pilot policy before any write path is exposed.</p>
+        <div class="path-links">
+          <a href="#quickstart">Run locally</a>
+          <a href="#orm-compatibility">ORM compatibility</a>
+          <a href="#verification">Evidence verification</a>
+          <a href="#roadmap">Next gates</a>
+        </div>
+      </div>
+      <div class="path-card">
+        <span class="tag amber">Product / Risk</span>
+        <h3>Founder / CTO</h3>
+        <p>Understand what AXIS does today, what it refuses to claim, and the disciplined sequence of gates before production use.</p>
+        <div class="path-links">
+          <a href="#product">What AXIS is</a>
+          <a href="#current-limitations">Implemented / not yet</a>
+          <a href="#roadmap">Roadmap priorities</a>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ================= 1. QUICKSTART ================= -->
+<section id="quickstart" class="anchor">
+  <div class="wrap">
+    <div class="kicker green">01 · Quickstart</div>
+    <h2>Run AXIS locally for review</h2>
+    <p class="lead">The local stack is the reviewer path: Docker Compose starts AXIS and a bundled PostgreSQL. All evidence and audit files stay local. This is reviewer packaging, not a production deployment guide.</p>
+
+    <h3>Prerequisites</h3>
+    <p>Windows: Git, Rust toolchain from rustup, Docker Desktop, Node.js LTS, npm. Linux/macOS: Git, Rust toolchain, Docker and Docker Compose, Node.js LTS, npm. Python 3.10+ is needed for the verification scripts.</p>
+
+    <h3>Start the backend</h3>
+    <pre><code>git clone &lt;repository-url&gt;
+cd AXIS
+
+<span class="c-dim"># static and test checks first</span>
+cargo fmt --check
+cargo check
+cargo test
+
+<span class="c-dim"># local stack: AXIS + bundled PostgreSQL</span>
+docker compose up --build
+
+<span class="c-dim"># AXIS:  http://localhost:6543 (HTTP gate)</span>
+<span class="c-dim"># PostgreSQL: localhost:5432</span></code></pre>
+
+    <p>To run the Rust service directly instead of Docker (PostgreSQL must already be reachable): <code>cargo run</code>.</p>
+
+    <h3>Control plane</h3>
+    <pre><code>cd control-plane
+npm install
+npm run build
+npm run dev
+<span class="c-dim"># open http://localhost:3000</span></code></pre>
+    <p>The control plane proxies browser requests through <code>/api/axis/...</code> to the server-side <code>AXIS_BACKEND_URL</code> (default <code>http://localhost:6543</code>). Browsers must not call the backend directly.</p>
+
+    <h3>Core environment variables (backend)</h3>
+    <div class="tbl-wrap"><table>
+      <tr><th>Variable</th><th>Default</th><th>Purpose</th></tr>
+      <tr><td><code>LISTEN_ADDR</code></td><td><code>0.0.0.0:6543</code></td><td>AXIS bind address and port</td></tr>
+      <tr><td><code>DATABASE_URL</code> / <code>DB_HOST</code> <code>DB_PORT</code> <code>DB_NAME</code> <code>DB_USER</code> <code>DB_PASS</code></td><td>built from DB fields</td><td>PostgreSQL connection for <code>tokio-postgres</code>; default db <code>prod_main</code>, user <code>varux</code></td></tr>
+      <tr><td><code>AXIS_POLICY_DIR</code> / <code>AXIS_POLICY_MANIFEST</code></td><td><code>./policies</code> / <code>./policies/policy_manifest.json</code></td><td>Authoritative startup manifest for the active policy (v0.9 manifest startup path)</td></tr>
+      <tr><td><code>POLICY_PATH</code></td><td><code>./policies/prod_main.json</code></td><td>Deprecated compatibility variable; startup uses the manifest</td></tr>
+      <tr><td><code>AXIS_POLICY_STORE_PATH</code></td><td><code>./data/policies</code></td><td>Local policy lifecycle store</td></tr>
+      <tr><td><code>AUDIT_WAL_PATH</code> / <code>AUDIT_LOG_PATH</code></td><td><code>./audit.wal</code> / <code>./audit.log</code></td><td>Durable audit WAL (canonical) and JSONL projection (operator convenience)</td></tr>
+      <tr><td><code>AXIS_APPROVAL_DB_PATH</code></td><td><code>./data/approvals.sqlite</code></td><td>SQLite approval state machine store</td></tr>
+      <tr><td><code>OPERATING_MODE</code></td><td><code>enforce</code></td><td>One of <code>shadow</code>, <code>approval_first</code>, <code>enforce</code>, <code>emergency_bypass</code></td></tr>
+      <tr><td><code>AXIS_OPERATOR_TOKEN</code></td><td>unset</td><td>Required header for mutating policy lifecycle endpoints</td></tr>
+      <tr><td><code>AXIS_RUNTIME_PROFILE</code></td><td><code>local</code></td><td><code>local</code> or <code>production</code>; production fails fast without a strong operator token</td></tr>
+      <tr><td><code>AXIS_REQUEST_TIMEOUT_MS</code> / <code>AXIS_DB_QUERY_TIMEOUT_MS</code> / <code>AXIS_DB_CONNECT_TIMEOUT_MS</code></td><td><code>10000</code> / <code>8000</code> / <code>5000</code></td><td>Bounded request and DB timeouts; timeouts report <code>execution_state: "unknown"</code>, never silent retry of protected writes</td></tr>
+      <tr><td><code>AXIS_DB_POOL_MAX_CONNECTIONS</code> / <code>AXIS_DB_POOL_ACQUIRE_TIMEOUT_MS</code></td><td><code>10</code> / <code>3000</code></td><td>Bounded pool; exhaustion returns structured error, no panic</td></tr>
+      <tr><td><code>AXIS_RATE_LIMIT_ENABLED</code> / <code>AXIS_RATE_LIMIT_REQUESTS_PER_MINUTE</code> / <code>AXIS_RATE_LIMIT_BURST</code></td><td><code>true</code> / <code>120</code> / <code>30</code></td><td>Rate limiting keyed first by actor</td></tr>
+      <tr><td><code>AXIS_MAX_BODY_BYTES</code> / <code>AXIS_MAX_SQL_BYTES</code></td><td><code>1048576</code> / <code>262144</code></td><td>Oversized input → structured rejection; no unlimited mode</td></tr>
+      <tr><td><code>AXIS_PGWIRE_ENABLED</code> / <code>AXIS_PGWIRE_LISTEN_ADDR</code> / <code>AXIS_PGWIRE_BACKEND_ADDR</code></td><td><code>false</code> / <code>0.0.0.0:6544</code> / <code>127.0.0.1:5432</code></td><td>Native PostgreSQL wire lab listener, disabled by default; unsupported paths fail closed</td></tr>
+    </table></div>
+
+    <h3>Smoke test</h3>
+    <pre><code>curl.exe http://localhost:6543/health
+curl.exe http://localhost:6543/runtime/stats
+curl.exe "http://localhost:6543/evidence/verify"
+
+<span class="c-dim"># safe read → expect decision ALLOW</span>
+curl.exe -X POST http://localhost:6543/query -H "Content-Type: application/json" -d "{\"actor\":\"reviewer\",\"app\":\"demo\",\"tenant\":\"acme\",\"role\":\"developer\",\"host\":\"localhost\",\"env\":\"prod\",\"sql\":\"SELECT 1 AS axis_demo\"}"
+
+<span class="c-dim"># risky write → expect 403 BLOCK (default policy), no execution</span>
+curl.exe -X POST http://localhost:6543/query -H "Content-Type: application/json" -d "{\"actor\":\"reviewer\",\"app\":\"demo\",\"tenant\":\"acme\",\"role\":\"developer\",\"host\":\"localhost\",\"env\":\"prod\",\"sql\":\"DELETE FROM users\"}"
+
+<span class="c-dim"># batch update → expect 202 REQUIRE_APPROVAL + approval_id</span>
+curl.exe -X POST http://localhost:6543/query -H "Content-Type: application/json" -d "{\"actor\":\"reviewer\",\"app\":\"demo\",\"tenant\":\"acme\",\"role\":\"developer\",\"host\":\"localhost\",\"env\":\"prod\",\"sql\":\"UPDATE orders SET status = 'reviewed'\"}"</code></pre>
+
+    <h3>Enforcement outcomes</h3>
+    <p><span class="badge allow">200 ALLOW</span><span class="badge block">403 BLOCK</span><span class="badge appr">202 REQUIRE_APPROVAL</span> plus controlled <code>4xx</code>/<code>5xx</code> failures with structured error metadata (<code>error.code</code>, <code>category</code>, <code>severity</code>, <code>safe_to_retry</code>, <code>operator_action</code>).</p>
+
+    <h3>Policy lifecycle endpoints</h3>
+    <p><code>POST /policy/validate</code>, <code>POST /policy/diff</code>, <code>POST /policy/dry-run</code> (never executes, never writes audit evidence, never creates approvals), <code>POST /policy/candidates</code>, <code>POST /policy/activate</code> and <code>POST /policy/rollback</code> (the last three require the operator token when configured).</p>
+
+    <div class="note amber">Audit corruption or an unwritable audit path is never silently repaired. AXIS reports it. If <code>/evidence/verify</code> reports invalid records, investigate before continuing — do not delete evidence from any reviewer, pilot, or shared environment.</div>
+  </div>
+</section>
+
+<!-- ================= 2. ARCHITECTURE ================= -->
+<section id="architecture" class="anchor" style="background:var(--bg-2);">
+  <div class="wrap">
+    <div class="kicker">02 · Architecture</div>
+    <h2>Deterministic write-path architecture</h2>
+    <p class="lead">The execution path is: <b>Gate → Context Builder → SQL Classifier → Policy Engine → Approval Workflow → Audit/Evidence Store</b>. Every protected write produces context, a decision, and evidence — in that order.</p>
+
+    <div class="flow">
+      <div class="flow-row">
+        <div class="node"><span class="sub">Clients</span>Apps / scripts / AI agents / operators</div>
+      </div>
+      <div class="arrow">▼</div>
+      <div class="flow-row">
+        <div class="node key"><span class="sub">Gate</span>Request validation · Context Builder</div>
+        <div class="node"><span class="sub">SQL Classifier</span>Parse · normalize · fingerprint · operation · scope · risk signals</div>
+      </div>
+      <div class="arrow">▼</div>
+      <div class="flow-row">
+        <div class="node key"><span class="sub">Policy Engine</span>Versioned deterministic evaluation</div>
+      </div>
+      <div class="arrow">▼</div>
+      <div class="branch">
+        <div class="node green"><span class="sub">Decision</span>ALLOW → execute through PostgreSQL, then record result evidence</div>
+        <div class="node red"><span class="sub">Decision</span>BLOCK → evidence written, zero execution</div>
+        <div class="node amber"><span class="sub">Decision</span>REQUIRE_APPROVAL → approval record + evidence, no execution until resolved</div>
+      </div>
+      <div class="arrow">▼</div>
+      <div class="flow-row">
+        <div class="node"><span class="sub">Audit / Evidence Store</span>Canonical WAL · JSONL projection · hash chain · derived index</div>
+      </div>
+    </div>
+
+    <div class="note">Decisions are deterministic: the same request context under the same <code>policy_version</code> produces the same decision. AXIS does not guess with AI — policy decides, classification is the single source of truth for authorization (Security Classification Contract v1.0, locked 2026-08-07).</div>
+
+    <h3>Core components (from the architecture record)</h3>
+    <ul style="font-size:13.5px;padding-left:18px;margin-bottom:14px;">
+      <li style="padding:3px 0;"><b>Listener/API layer</b> — Axum HTTP service exposing <code>/query</code>, approvals, audit, runtime, evidence, and policy lifecycle endpoints.</li>
+      <li style="padding:3px 0;"><b>SQL classification</b> — PostgreSQL SQL parsing, normalization, fingerprinting, operation detection, target extraction, scope estimation, risk signals.</li>
+      <li style="padding:3px 0;"><b>Session store</b> — in-memory <code>session_id</code>-scoped prepared statement metadata for AXIS-side <code>PREPARE</code> / <code>EXECUTE</code> / <code>DEALLOCATE</code> enforcement.</li>
+      <li style="padding:3px 0;"><b>Policy engine</b> — versioned policy evaluation producing <code>ALLOW</code>, <code>BLOCK</code>, or <code>REQUIRE_APPROVAL</code>.</li>
+      <li style="padding:3px 0;"><b>Approval store</b> — SQLite-backed approval state machine (documented historically as JSONL): pending and resolved records.</li>
+      <li style="padding:3px 0;"><b>Audit logger</b> — WAL plus JSONL projection with event hashes and previous-hash linkage; derived audit index as a disposable read model.</li>
+      <li style="padding:3px 0;"><b>Evidence verifier</b> — read-only hash-chain verification (<code>GET /evidence/verify</code>, <code>GET /audit/verify</code>).</li>
+      <li style="padding:3px 0;"><b>Runtime log store</b> — bounded in-memory operational log buffer exposed by <code>GET /logs</code>; visibility only, not evidence.</li>
+      <li style="padding:3px 0;"><b>Policy lifecycle store</b> — immutable local version files, active pointer, candidate state, validation, activation, rollback; manifest-based startup.</li>
+      <li style="padding:3px 0;"><b>Runtime visibility endpoints</b> — health, runtime stats/metrics, logs, audit explorer, policy status, evidence verification.</li>
+      <li style="padding:3px 0;"><b>Control plane</b> — Next.js operator surface (see below).</li>
+      <li style="padding:3px 0;"><b>Native pgwire lab listener</b> — disabled by default; Simple Query interception plus extended-query driver flows (see ORM section).</li>
+    </ul>
+
+    <h3>Prepared statement fail-safety (HTTP gate)</h3>
+    <p>AXIS-side <code>PREPARE</code> validates the inner SQL, registers session metadata, writes audit evidence, and does not forward a database-side <code>PREPARE</code>. <code>EXECUTE</code> resolves the stored original SQL and evaluates it through policy; an unresolved, cross-session, malformed, or missing-session <code>EXECUTE</code> never becomes a silent <code>ALLOW</code>. Allowed prepared <code>EXECUTE</code> is not blindly forwarded as raw PostgreSQL <code>EXECUTE</code>, because HTTP sessions do not guarantee pooled backend connection affinity.</p>
+
+    <h3>Policy lifecycle and manifest startup</h3>
+    <ol style="font-size:13.5px;padding-left:20px;margin-bottom:14px;">
+      <li style="padding:2px 0;">Startup: verify audit WAL continuity → load and validate policy manifest → resolve and hash active policy file → parse and validate policy model → run deterministic activation dry-run corpus → write lifecycle audit events → accept traffic.</li>
+      <li style="padding:2px 0;">Candidate policies are validated before storage; diff compares candidate vs active; dry-run reuses classifier and policy evaluation without SQL execution, audit writes, or approval creation.</li>
+      <li style="padding:2px 0;">Activation requires the candidate ID + <code>expected_hash</code>, re-validates, then swaps the in-memory active policy. Rollback requires a valid stored version + expected hash. Old versions are retained; no silent policy downgrade.</li>
+    </ol>
+
+    <h3>Native PostgreSQL wire mode (lab)</h3>
+    <p>The lab listener (<code>AXIS_PGWIRE_ENABLED</code>, default <code>false</code>, port 6544) performs cleartext startup/auth pass-through in lab mode, intercepts Simple Query (<code>Q</code>) messages, maps them into the existing AXIS policy model, and returns PostgreSQL-compatible <code>ErrorResponse</code> for blocked, approval-required, unsupported, backend-failed, policy-failed and audit-failed paths. <code>BLOCK</code> and <code>APPROVAL_REQUIRED</code> send zero original query bytes to the backend — proven at byte level with a backend mock, not by empty PostgreSQL logs. Extended-query driver flows (parameterized statements through <code>Parse/Bind/Execute</code> before <code>Sync</code>) are exercised by real-driver tests; same-cycle pipelining is rejected (SQLSTATE <code>42501</code>). COPY and the CopyData sub-protocol are fail-closed. <code>CancelRequest</code> is implemented and audited (RFC-032, 2026-07-10).</p>
+    <div class="note red">This lab PoC is not production-ready, not enterprise pilot-ready, not ORM-compatible as a universal claim, and not a "complete PostgreSQL proxy". Unsupported protocol paths fail closed.</div>
+
+    <!-- control panel anchor -->
+    <div id="control-panel" class="anchor">
+      <h3>Control Plane (operator surface)</h3>
+      <div class="grid2">
+        <div class="panel">
+          <h4>Views</h4>
+          <ul style="list-style:none;font-size:13px;">
+            <li style="padding:3px 0;">Dashboard — health, runtime status, integrity, recent activity</li>
+            <li style="padding:3px 0;">Query console — direct <code>/query</code> evaluation</li>
+            <li style="padding:3px 0;">Approval center — pending approvals and resolution</li>
+            <li style="padding:3px 0;">Evidence explorer — recent audit events, event detail, decision trace</li>
+            <li style="padding:3px 0;">Policy lifecycle — validate, diff, dry-run, versions, activate, rollback</li>
+            <li style="padding:3px 0;">Runtime — service status, audit posture, limits, evidence verification</li>
+            <li style="padding:3px 0;">Logs — real runtime logs from <code>/api/axis/logs</code></li>
+          </ul>
+        </div>
+        <div class="panel">
+          <h4>Honesty rules</h4>
+          <ul style="list-style:none;font-size:13px;">
+            <li style="padding:3px 0;"><code>real</code> mode shows live backend state; <code>mock</code> mode is explicit server-side demo behavior only, never production evidence.</li>
+            <li style="padding:3px 0;">Runtime log entries never expose raw audit WAL records, raw headers, DB credentials, operator tokens, backend URLs, or raw SQL bodies.</li>
+            <li style="padding:3px 0;">Decision counts shown are derived from recorded audit decisions, not synthetic counters.</li>
+            <li style="padding:3px 0;">Operator token is injected server-side; browser code never receives it.</li>
+          </ul>
+        </div>
+      </div>
+    </div>
+
+    <h3>Trust boundaries (as documented)</h3>
+    <div class="tbl-wrap"><table>
+      <tr><th>Boundary</th><th>Documented posture</th></tr>
+      <tr><td>Application → AXIS</td><td>SQL, request identity fields and environment labels are untrusted inputs unless deployment adds identity controls</td></tr>
+      <tr><td>AXIS → database</td><td>AXIS is trusted to enforce policy before forwarding allowed SQL to PostgreSQL</td></tr>
+      <tr><td>AXIS session id → backend session</td><td>Not trusted as equivalent; prepared state is AXIS-side security metadata, not a guarantee of DB connection affinity</td></tr>
+      <tr><td>Operator → control plane</td><td>Local settings + optional operator token for mutating lifecycle endpoints; not full RBAC</td></tr>
+      <tr><td>Audit/evidence store</td><td>Local files are trusted for local review, not an external tamper-proof ledger</td></tr>
+      <tr><td>Runtime log store</td><td>In-memory operational visibility only, not durable proof</td></tr>
+      <tr><td>Policy store</td><td>Local files and manifests are trusted local state; hash checks detect accidental or simple tampering, not signed distribution</td></tr>
+    </table></div>
+  </div>
+</section>
+
+<!-- ================= 3. SECURITY MODEL ================= -->
+<section id="security-model" class="anchor">
+  <div class="wrap">
+    <div class="kicker red">03 · Security Model</div>
+    <h2>Enforcement, fail-closed behavior, and transport status</h2>
+    <p class="lead">The security model is a local hardened security core, not an enterprise product. What is actually implemented today — and what is still missing — is stated explicitly below.</p>
+
+    <h3>Policy model (current baseline policy <code>policies/prod_main.json</code>)</h3>
+    <div class="tbl-wrap"><table>
+      <tr><th>SQL class</th><th>Default policy behavior</th></tr>
+      <tr><td>Reads</td><td>Default <code>ALLOW</code></td></tr>
+      <tr><td>Writes</td><td>Default <code>BLOCK</code></td></tr>
+      <tr><td>DDL</td><td>Default <code>REQUIRE_APPROVAL</code></td></tr>
+      <tr><td>Specific single-row <code>orders</code> updates</td><td>Can be allowed for allowed <code>webapp</code> roles</td></tr>
+      <tr><td>Bulk updates</td><td><code>REQUIRE_APPROVAL</code></td></tr>
+      <tr><td>Deletes without <code>WHERE</code></td><td><code>BLOCK</code> (risk signal <code>delete_without_where</code>)</td></tr>
+      <tr><td>Selected migration cleanup paths</td><td><code>REQUIRE_APPROVAL</code> with a different approver group</td></tr>
+    </table></div>
+
+    <h3>Operating modes</h3>
+    <p><code>shadow</code> (records policy result, allows execution) · <code>approval_first</code> (can force high-risk writes to approval) · <code>enforce</code> (applies decisions) · <code>emergency_bypass</code> (can allow blocked write paths with audit evidence). The current hardening evidence uses <code>enforce</code>.</p>
+
+    <h3>Classifier and parser controls (implemented)</h3>
+    <div class="grid2">
+      <div class="panel">
+        <h4>Request controls</h4>
+        <ul style="list-style:none;font-size:13px;">
+          <li style="padding:3px 0;">Empty SQL rejection</li>
+          <li style="padding:3px 0;">Multiple-statement rejection</li>
+          <li style="padding:3px 0;">Parser errors → controlled request rejection</li>
+          <li style="padding:3px 0;">Unsupported statement types rejected</li>
+          <li style="padding:3px 0;">Write-like or locking read forms rejected (incl. selected CTE and <code>SELECT INTO</code> patterns)</li>
+          <li style="padding:3px 0;">SQL normalization and fingerprinting for audit evidence</li>
+          <li style="padding:3px 0;">Scope estimation for single-row vs batch write behavior</li>
+        </ul>
+      </div>
+      <div class="panel">
+        <h4>Risk signals</h4>
+        <p style="font-size:13px;"><code>prod_write</code> · <code>ddl_operation</code> · <code>bulk_operation</code> · <code>delete_without_where</code> · <code>unknown_target</code> · <code>unknown_scope</code> · <code>cross_schema</code>. </p>
+        <p style="font-size:13px;margin-top:8px;">Under the Security Classification Contract v1.0 (locked 2026-08-07), classification is the primary control ("Semantic &gt; Syntax", "State Mutation = Write", fail-closed on ambiguity); risk signals are a fallback override for defense in depth, never the primary protection. Mandatory write patterns include <code>INSERT/UPDATE/DELETE</code>, <code>SELECT INTO</code>, <code>CREATE TABLE AS</code>, <code>MERGE</code>, <code>TRUNCATE</code>, <code>DROP/ALTER</code>, <code>REFRESH MATERIALIZED VIEW</code>, <code>COPY FROM</code>, <code>CALL</code>, <code>DO</code>, <code>nextval()/setval()</code>, <code>lo_import/lo_export</code>, and data-modifying CTEs. <code>COPY TO PROGRAM</code> and <code>ALTER SYSTEM</code> are critical — always <code>BLOCK</code>.</p>
+      </div>
+    </div>
+
+    <h3>Approval model (implemented)</h3>
+    <ul style="font-size:13.5px;padding-left:18px;margin-bottom:14px;">
+      <li style="padding:3px 0;"><code>REQUIRE_APPROVAL</code> creates a pending approval record; the original query is <b>not executed</b> when the record is created.</li>
+      <li style="padding:3px 0;">Resolution can approve or reject; approved requests execute only after audit writability is checked; rejected requests are blocked.</li>
+      <li style="padding:3px 0;">Already-resolved approvals cannot be resolved again; the concurrent approval race test verified one approval cannot produce multiple final executions in the tested local baseline.</li>
+      <li style="padding:3px 0;">Approvals never hold database transactions, locks, or TCP sockets open while waiting for a human. In pgwire mode inside a transaction, <code>BLOCK</code>/<code>APPROVAL_REQUIRED</code> poisons the session, issues an audited policy-exempt safety <code>ROLLBACK</code>, and closes the connection (strict v1.2 default).</li>
+      <li style="padding:3px 0;">Human wait time is never counted in approval latency measurements.</li>
+    </ul>
+
+    <h3>Fail-closed behavior (verified baseline)</h3>
+    <div class="tbl-wrap"><table>
+      <tr><th>Failure case</th><th>Expected behavior</th><th>Verified</th></tr>
+      <tr><td>PostgreSQL down</td><td>Risky writes must not receive unsafe <code>200 ALLOW</code>; recovery after DB restart</td><td class="ok">PASS</td></tr>
+      <tr><td>Audit path unwritable</td><td>Writes must not execute when audit evidence cannot be written</td><td class="ok">PASS</td></tr>
+      <tr><td>Invalid policy JSON</td><td>Startup fails or runtime unhealthy instead of running with invalid policy</td><td class="ok">PASS</td></tr>
+      <tr><td>Corrupt approval store</td><td>Fail safely; corrupt state must not allow writes</td><td class="ok">PASS</td></tr>
+      <tr><td>Corrupt final audit entry</td><td>Startup fails fast when chain recovery is impossible</td><td class="ok">PASS</td></tr>
+      <tr><td>Malformed JSON / oversized input</td><td>Controlled client rejection, no unsafe allow</td><td class="ok">PASS</td></tr>
+      <tr><td>Restart during traffic / DB pool pressure</td><td>No unsafe <code>ALLOW</code> under load</td><td class="ok">PASS</td></tr>
+      <tr><td>Parser bypass corpus</td><td>Risky SQL must not get unsafe <code>200 ALLOW</code></td><td class="ok">PASS</td></tr>
+    </table></div>
+
+    <h3>Transport and identity status — what is really done vs missing</h3>
+    <div class="grid2">
+      <div class="panel">
+        <h4>Implemented today</h4>
+        <ul style="list-style:none;font-size:13px;">
+          <li style="padding:3px 0;">Deterministic pre-execution enforcement with fail-closed rejection</li>
+          <li style="padding:3px 0;">Policy manifest + SHA-256 local file integrity at startup (v0.9)</li>
+          <li style="padding:3px 0;">Operator token (<code>X-AXIS-Operator-Token</code> / Bearer) for mutating lifecycle and approval endpoints; production profile fails fast on weak tokens</li>
+          <li style="padding:3px 0;">Rate limiting, bounded timeouts, body/SQL size limits, pool bounds</li>
+          <li style="padding:3px 0;">Optional JWT HS256 enterprise demo mode (<code>AXIS_AUTH_MODE</code>): actor/tenant/role derived from a verified token instead of spoofable JSON fields — documented as local/demo auth, not enterprise IAM</li>
+          <li style="padding:3px 0;">pg_hba baseline checks and drift detection are specified in the hardening notes (<code>AXIS_PG_HBA_*</code>); signed audit WAL and checkpoint anchoring are described in hardening notes as implemented paths (<code>axis-audit-verify</code>, <code>epochs.log</code>, <code>axis.audit.checkpoint.v1</code>)</li>
+        </ul>
+      </div>
+      <div class="panel">
+        <h4>Not implemented yet</h4>
+        <ul style="list-style:none;font-size:13px;">
+          <li style="padding:3px 0;"><b>TLS/mTLS on the pgwire transport.</b> As of RFC-032 (2026-07-10, the newest dated evidence): client-to-AXIS <code>SSLRequest</code> receives <code>N</code> in lab mode or is rejected when lab mode is disabled; the backend forwarder opens a raw TCP stream; no TLS mode, CA, cert, server-name, rustls or native-tls configuration exists on either normal or CancelRequest paths. Cleartext traffic is restricted to loopback / isolated container network / protected private overlay. Deploying the current pgwire transport across an untrusted network is not supported.</li>
+          <li style="padding:3px 0;"><b>HTTP gate TLS.</b> The v1 security core documented as "no auth, TLS, or RBAC"; TLS/mTLS configuration surfaces (<code>AXIS_TLS_*</code>, upstream mTLS variables) are specified in the hardening notes for production-mode hardening.</li>
+          <li style="padding:3px 0;">Identity: request identity fields (<code>actor</code>, <code>app</code>, <code>tenant</code>, <code>role</code>, <code>host</code>, <code>env</code>) are evidence and policy inputs, <b>not verified identity claims</b>. Approvers are not authenticated; the <code>actor</code> in approval resolution is recorded, not cryptographically verified.</li>
+          <li style="padding:3px 0;">Full RBAC / SSO; KMS / HSM-backed key management; OIDC/JWKS production identity integration</li>
+          <li style="padding:3px 0;">External tamper-proof audit ledger; distributed audit chain across multiple AXIS instances</li>
+        </ul>
+      </div>
+    </div>
+
+    <h3>Explicit non-goals in the v1 security core</h3>
+    <p>No auth/TLS/RBAC · no production-grade tenant isolation · no external secrets management · no metrics/observability backend · no log rotation or retention policy · no full historical audit-chain verifier · no distributed audit-chain coordination · no production deployment hardening.</p>
+    <div class="note">Bypass honesty: AXIS cannot protect database traffic that bypasses AXIS entirely. Production deployments must enforce network, IAM, firewall, security-group, and database access controls so protected write paths must pass through AXIS. Hard bypass creates an evidence gap that AXIS cannot retroactively prove closed.</div>
+  </div>
+</section>
+
+<!-- ================= 4. ORM COMPATIBILITY ================= -->
+<section id="orm-compatibility" class="anchor" style="background:var(--bg-2);">
+  <div class="wrap">
+    <div class="kicker cyan">04 · ORM Compatibility</div>
+    <h2>Real-driver compatibility matrix (pgwire mode)</h2>
+    <p class="lead">Status date: 2026-07-05. Real-client compatibility for AXIS pgwire mode, validated with live driver traffic (psycopg3, asyncpg, Prisma 6.19.3, PostgreSQL JDBC / pgjdbc 42.7.7). Prisma and JDBC wire-level recon was run through a temporary TCP capture proxy in front of AXIS before any production test code was added.</p>
+
+    <div class="tbl-wrap"><table>
+      <tr><th>Driver / ORM</th><th>Language</th><th>Observed mode</th><th>SELECT / INSERT / UPDATE</th><th>Denied DELETE</th><th>Transaction abort &amp; savepoint recovery</th><th>Prepared statement reuse</th><th>Batch / bulk + pipelining</th><th>Leakage checks</th><th>Status</th></tr>
+      <tr>
+        <td><b>psycopg3</b></td><td>Python</td><td>Extended Query for parameterized statements; simple SQL for explicit transaction control</td>
+        <td class="ok">Covered</td><td class="ok">Covered — expects SQLSTATE <code>42501</code>; connection usable after deny</td>
+        <td class="ok">Covered; <code>test_psycopg3_savepoint_recovery_after_policy_deny</code> passed</td>
+        <td class="ok">Covered, incl. SQL-level <code>PREPARE</code>/<code>EXECUTE</code> deny</td>
+        <td class="no">Not part of current matrix</td>
+        <td class="ok">Audit WAL marker checks included</td>
+        <td class="ok">Implemented, locally passed</td>
+      </tr>
+      <tr>
+        <td><b>asyncpg</b></td><td>Python</td><td>Extended Query / prepared statement flow</td>
+        <td class="ok">Covered</td><td class="ok">Covered — expects SQLSTATE <code>42501</code></td>
+        <td class="ok">Covered; <code>test_asyncpg_savepoint_recovery_after_policy_deny</code> passed</td>
+        <td class="ok">Covered with <code>conn.prepare()</code> and SQL-level deny</td>
+        <td class="no">Not part of current matrix</td>
+        <td class="ok">Audit WAL marker checks included</td>
+        <td class="ok">Implemented, locally passed</td>
+      </tr>
+      <tr>
+        <td><b>Prisma</b> 6.19.3</td><td>TypeScript / JS</td><td>Extended Query for DML; Simple Query for <code>BEGIN/COMMIT/ROLLBACK/SAVEPOINT</code></td>
+        <td class="ok">Covered (single-row INSERT, single-row UPDATE)</td><td class="ok">Covered — <code>42501</code>, client rolled back, then <code>SELECT 1</code></td>
+        <td class="ok">Covered; raw SQL savepoint inside interactive <code>$transaction</code></td>
+        <td class="no">Not yet covered as a production test</td>
+        <td class="ok">Recon: no same-cycle pipelining (<code>createMany</code> = one multi-row INSERT Bind/Execute, succeeded; <code>updateMany</code>/<code>deleteMany</code> policy-denied)</td>
+        <td class="no">Production leakage test not added yet</td>
+        <td class="ok">Single-statement production tests implemented</td>
+      </tr>
+      <tr>
+        <td><b>PostgreSQL JDBC</b> (pgjdbc 42.7.7)</td><td>Java</td><td>Extended Query; default connection may send whitelisted <code>SET application_name</code> during startup</td>
+        <td class="ok">Covered; default connection without <code>assumeMinServerVersion=12</code> covered</td><td class="ok">Covered — <code>42501</code></td>
+        <td class="ok">Covered; savepoint recovery after policy deny passed</td>
+        <td class="ok">Covered with repeated prepared execution</td>
+        <td class="no"><b>Batch (<code>addBatch</code>/<code>executeBatch</code>) NOT SUPPORTED in MVP.</b> Decision 2026-07-05: <code>PIPELINING_SUPPORT=false</code> rejects extended-query cycles with more than one Bind/Execute before Sync. Clean SQLSTATE <code>42501</code>, reason <code>unsupported_extended_pipeline</code>; same connection then executed <code>SELECT 1</code>. Regression test <code>test_jdbc_batch_execute_is_cleanly_rejected_not_hung_or_corrupted</code>.</td>
+        <td class="no">Production leakage test not added yet</td>
+        <td class="ok">Single-statement implemented; batch explicitly excluded</td>
+      </tr>
+      <tr>
+        <td><b>SQLAlchemy</b></td><td>Python</td><td>Not observed in the pgwire matrix</td><td class="no">Not added</td><td class="no">Not added</td><td class="no">Not added</td><td class="no">Not added</td><td class="no">Not observed</td><td class="no">Not added</td><td class="no">Not in pgwire matrix — covered separately via the pilot HTTP adapter (below)</td>
+      </tr>
+    </table></div>
+
+    <div class="note">Full real-driver suite passed 37 tests on 2026-07-05. Pipelining recon evidence: JDBC batch traffic (3 Bind + 3 Execute before one Sync) and reWriteBatchedInserts variants are rejected cleanly at the protocol state-machine level and confirmed with real pgjdbc captures. Do not mark JDBC batch support green while <code>PIPELINING_SUPPORT=false</code>.</div>
+
+    <h3>Pilot integration: FastAPI + SQLAlchemy (HTTP adapter model)</h3>
+    <p>The pilot (<code>demo/docker-compose.pilot.yml</code>) uses a realistic business backend. Reads execute directly against PostgreSQL (<code>path: direct_postgres</code>). Protected writes are compiled by SQLAlchemy (<code>AxisRoutingSession</code>) and submitted to AXIS HTTP <code>/query</code> for policy evaluation and execution. This is an application integration model, not a driver-level proxy model.</p>
+    <ul style="font-size:13.5px;padding-left:18px;margin-bottom:14px;">
+      <li style="padding:3px 0;">Covered: single-row INSERT/UPDATE, blocked destructive delete (<code>BLOCK</code>, 403), role-change approval flow (<code>REQUIRE_APPROVAL</code>, 202), explicit retry with <code>approval_id</code> after approval, rejection (409), transaction rollback around approval-required and blocked operations.</li>
+      <li style="padding:3px 0;">APPROVAL uses rollback + explicit retry: AXIS never holds the database transaction open while waiting for a human. If approved, the original business operation is resubmitted with the <code>approval_id</code>.</li>
+      <li style="padding:3px 0;">Not proven: universal SQLAlchemy dialect behavior — arbitrary flush ordering, relationship cascades, custom type binders, stored procedures, server-generated non-primary values, arbitrary bulk parameter sets.</li>
+      <li style="padding:3px 0;">ORM-generated SQL: extremely complex or vendor-specific shapes may be rejected or fail closed until profiled into the supported regression corpus. This is intentional: AXIS prefers fail-closed over silently allowing SQL it cannot classify with confidence.</li>
+      <li style="padding:3px 0;">Prisma Migrate / schema introspection is out of scope; migrations should use a direct privileged connection unless product requirements change.</li>
+    </ul>
+
+    <h3>Protocol-boundary behavior worth knowing</h3>
+    <div class="grid2">
+      <div class="panel">
+        <h4>Fail-closed</h4>
+        <ul style="list-style:none;font-size:13px;">
+          <li style="padding:3px 0;"><code>COPY FROM STDIN</code> / <code>COPY TO STDOUT</code> / CopyData sub-protocol: not supported, rejected before bulk transfer, connection usable after rejection</li>
+          <li style="padding:3px 0;">Pipeline mode: rejected (<code>42501</code> / <code>unsupported_extended_pipeline</code>)</li>
+          <li style="padding:3px 0;">Sensitive session GUCs denied: <code>search_path</code>, <code>role</code>, <code>session_authorization</code>, <code>row_security</code> — whitelisting any requires its own bypass analysis</li>
+          <li style="padding:3px 0;">Stored routine bodies are opaque: AXIS policies the SQL text sent by the client, not the body of previously created functions/procedures (e.g. <code>SELECT process_order(123)</code> does not reveal an internal <code>DELETE</code>). Regression-covered; complementary control is PostgreSQL native <code>GRANT</code>/<code>REVOKE</code></li>
+        </ul>
+      </div>
+      <div class="panel">
+        <h4>Extended Query status</h4>
+        <p style="font-size:13px;">Parameterized single-statement flows are tested with real drivers (Parse/Bind/Execute/Sync). Full Extended Query positive-path support — prepared statement state machines, portals, batch cycles, and ≥4 major driver stacks passing ALLOW/BLOCK/APPROVAL/audit tests without unsafe downgrades (extended-query roadmap acceptance criterion) — is the required gate before a real OLTP pilot. Same-cycle pipelining stays rejected.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ================= 5. EVIDENCE ================= -->
+<section id="evidence" class="anchor">
+  <div class="wrap">
+    <div class="kicker green">05 · Evidence</div>
+    <h2>Audit chain, hash-chain verification, raw evidence standard</h2>
+    <p class="lead">Every important decision produces an audit event. The audit WAL is the canonical source of evidence; the JSONL projection is operator convenience; the derived index is a disposable read model. If AXIS claims durable evidence, the evidence format must be explicit. "We logged it somewhere" is not evidence.</p>
+
+    <h3>What each event records</h3>
+    <div class="pill-row">
+      <span class="pill">request_id</span>
+      <span class="pill">event_id</span>
+      <span class="pill">event_type</span>
+      <span class="pill">actor / app / tenant / role / host / env</span>
+      <span class="pill">operation</span>
+      <span class="pill">classifier</span>
+      <span class="pill">sql_fingerprint</span>
+      <span class="pill">normalized_sql / raw_sql / params</span>
+      <span class="pill">target / scope</span>
+      <span class="pill">risk_signals</span>
+      <span class="pill">decision / policy_decision</span>
+      <span class="pill">reason_code</span>
+      <span class="pill">matched_rule</span>
+      <span class="pill">policy_version / policy_sha256</span>
+      <span class="pill">previous_hash</span>
+      <span class="pill">event_hash</span>
+    </div>
+
+    <h3>How the hash chain works</h3>
+    <ol style="font-size:13.5px;padding-left:20px;margin-bottom:14px;">
+      <li style="padding:2px 0;">Each event carries a <code>previous_hash</code> pointing to the last committed event hash, and an <code>event_hash</code> computed from canonical event content: <code>SHA-256(canonical_json(record_without_event_hash))</code> (lowercase hex).</li>
+      <li style="padding:2px 0;">On restart, AXIS reads the final non-empty audit record and continues the chain from that hash — the first post-restart <code>previous_hash</code> equals the pre-restart last <code>event_hash</code> (verified by <code>axis_audit_restart_test.py</code>).</li>
+      <li style="padding:2px 0;"><code>GET /evidence/verify</code> and <code>GET /audit/verify</code> recompute event hashes and verify linkage without mutating the log. Verification depth is <code>full_hash</code> (recomputed event hashes), not merely linkage.</li>
+      <li style="padding:2px 0;">Malformed records, missing hash fields, or mismatched hashes are reported as invalid evidence. AXIS does not silently repair evidence.</li>
+    </ol>
+    <div class="note">Current evidence proves restart continuity from the last event into the first post-restart event. It does not yet prove full historical chain verification from the first event to the last event — that remains on the roadmap.</div>
+
+    <h3>Raw evidence standard (WAL record, native PG spec v1.2)</h3>
+    <p>Each WAL record is one canonical JSON object, UTF-8, <code>\n</code> terminated: no pretty printing, no comments, no trailing commas. Required fields: <code>schema_version</code> (<code>axis.audit.wal.v1</code>), <code>event_id</code>, <code>event_type</code>, <code>event_time_utc</code>, <code>instance_id</code>, <code>session_id</code>, <code>axis_request_id</code>, <code>sequence</code>, <code>previous_event_hash</code>, <code>event_body</code>, <code>event_hash</code>. Hash input is canonical JSON: UTF-8, sorted object keys, no insignificant whitespace, stable number representation, <code>event_hash</code> excluded from its own hash input, <code>previous_event_hash</code> included.</p>
+    <pre><code>{
+  "schema_version": "axis.audit.wal.v1",
+  "event_id": "evt_...",
+  "event_type": "AXIS_POLICY_EVALUATED",
+  "event_time_utc": "2026-05-21T15:30:00.000000Z",
+  "instance_id": "axis-node-1",
+  "session_id": "sess_...",
+  "axis_request_id": "req_...",
+  "sequence": 12345,
+  "previous_event_hash": "hex...",
+  "event_body": { "decision": "BLOCK", "reason": "dangerous_delete_without_where",
+                  "risk": "CRITICAL", "matched_rule": "block-dangerous-delete",
+                  "policy_id": "prod-main", "policy_version": "prod_main@2026-05-01.1",
+                  "approval_required": false, "backend_forward_allowed": false },
+  "event_hash": "hex..."
+}</code></pre>
+    <p>Dispatch discipline: before forwarding protected execution, AXIS writes <code>AXIS_BACKEND_DISPATCH_INTENT</code> (with <code>intent_durable</code>); blocks record <code>backend_forwarded=false</code> and <code>tcp_bytes_forwarded=0</code> — an AXIS-layer assertion strengthened by byte-level backend-mock tests, not "magically witnessed by PostgreSQL". <code>AXIS_EXECUTION_UNKNOWN</code> (backend response lost, <code>cannot_confirm_non_execution=true</code>) is distinct from <code>AXIS_BACKEND_CONFIRMED_CLIENT_DELIVERY_UNKNOWN</code>. Raw SQL is not stored by default. Event taxonomy includes connection, startup/auth-observed, query received, policy evaluated, dispatch, block applied, approval issued, safety rollback, execution-unknown, emergency bypass, restart-recovery marker events.</p>
+
+    <h3>Signed audit WAL and checkpoint anchoring (hardening notes)</h3>
+    <p>The hardened audit path adds: a monotonic <code>sequence_number</code>, Ed25519 <code>key_id</code>, event <code>signature</code>, <code>previous_hash</code> and <code>event_hash</code> on every event; production startup requiring an audit signing key path (<code>AXIS_AUDIT_SIGNING_KEY_PATH</code>); <code>epochs.log</code> recording key epochs for offline verification after rotation; and checkpoint anchoring (<code>axis.audit.checkpoint.v1</code>) that signs the latest durable WAL head and delivers it to an append-only file replica or a webhook with receipts. Verification binaries: <code>cargo run --bin axis-audit-verify -- --epochs epochs.log audit.wal</code> (optionally <code>--checkpoints checkpoints.log</code>). Checkpoint anchor failures never roll back a locally committed WAL event; they retry with bounded exponential backoff and elevate to a hard alert after threshold. Production pg_hba baseline checks (<code>hostssl/cert</code>) are specified with <code>axis-generate-pg-hba</code> and signed <code>AXIS_PG_HBA_DRIFT_DETECTED</code> events — per hardening notes.</p>
+
+    <h3>Evidence Bundle V1 (portable, share-safe export)</h3>
+    <p><code>GET /audit/export</code> produces a bundle: <code>bundle_type: axis.evidence_bundle.v1</code>, schema version <code>1.0</code>, canonicalization <code>axis.canonical_json.v1</code> (lexicographic keys, RFC3339 timestamps), plus: bundle metadata, the verifier report at export time, active-policy evidence (policy id/version/SHA-256, manifest state), exported events in share-safe summary form, integrity metadata (<code>payload_sha256</code>, <code>event_hashes_sha256</code> over the ordered non-empty event-hash array, optional Ed25519 signature + <code>signed_at</code>), and redaction posture (<code>secrets_redacted: true</code>, <code>filesystem_paths_redacted: true</code>, <code>raw_fields_included: false</code>). The bundle never includes raw audit records, signing private keys, operator tokens, backend env variables, or filesystem paths.</p>
+    <pre><code>python scripts/axis_evidence_bundle_verify.py --bundle axis-evidence-bundle-v1.json
+<span class="c-dim"># unsigned → "AXIS Evidence Bundle Verification: PASS_WITH_WARNINGS (reason: bundle_unsigned)"</span>
+python scripts/axis_evidence_bundle_verify.py --bundle axis-evidence-bundle-v1.json \
+  --public-key-b64 &lt;key&gt; --require-signature
+<span class="c-dim"># signed → "AXIS Evidence Bundle Verification: PASS"; mismatch → FAIL (reason: payload_sha256_mismatch)</span></code></pre>
+    <div class="note">What a bundle proves: that the included AXIS evidence was exported in a stable V1 structure and has not changed since the recorded hash/signature. It does not prove external business truth — ticket correctness, customer requests, or database state outside AXIS — and cannot prove evidence that was not included. Known limitation: WAL reads are linear; large logs make export/verification latency proportional to WAL size.</div>
+
+    <h3>Source-of-truth rules</h3>
+    <p>Audit WAL is canonical; the JSONL projection is convenience; the Audit Derived Index V1 is disposable (safe to delete/rebuild, checksummed, never used as proof — <code>/audit/verify</code> always verifies the WAL; exports re-read WAL bodies before hashing). Decision traceability (<code>GET /audit/trace</code>) is read-only and WAL-backed: it never executes SQL, never mutates approval/policy/audit state, and never treats runtime logs as proof. Runtime logs are bounded, in-memory, reset on restart, and are not hash-chain evidence.</p>
+  </div>
+</section>
+
+<!-- ================= 6. VERIFICATION ================= -->
+<section id="verification" class="anchor" style="background:var(--bg-2);">
+  <div class="wrap">
+    <div class="kicker amber">06 · Verification</div>
+    <h2>Test methodology: no PASS without raw evidence</h2>
+    <p class="lead">AXIS verification has one discipline: <b>a PASS claim requires captured raw evidence</b> — recorded responses, audit files, byte-level mock captures, or verifier outputs. A demo claim without evidence files is a failure. This section describes the current baseline and how it is reproduced.</p>
+
+    <h3>Principle: raw evidence, not narrative</h3>
+    <ul style="font-size:13.5px;padding-left:18px;margin-bottom:14px;">
+      <li style="padding:3px 0;">The pilot evidence package is captured by <code>scripts/capture_pilot_evidence.py</code> from a running stack over HTTP — it never fabricates policy decisions, approval ids, audit ids, or placeholder screenshots. A partial capture leaves <code>PARTIAL_CAPTURE.txt</code>, which the verifier treats as failure.</li>
+      <li style="padding:3px 0;"><code>scripts/verify_pilot_evidence.py</code> prints <code>PILOT_EVIDENCE_VERIFICATION: PASS</code> or <code>FAIL</code> with the exact missing file/field. "PASS" means the evidence directory is complete and internally consistent for the current pilot claim.</li>
+      <li style="padding:3px 0;">Byte-level discipline (native pgwire): PostgreSQL logs are not proof that a blocked query never reached the backend — logging can be wrong, and absence in logs is not absence on the wire. A byte-level backend mock records the exact bytes AXIS wrote; BLOCK / APPROVAL_REQUIRED / unsupported-COPY paths must record zero original query bytes, ALLOW must forward bytes unchanged.</li>
+      <li style="padding:3px 0;">Mutation tests (Security Classification Contract v1.0, §5.4): for at least one critical detection (e.g. <code>IntoClause</code> / <code>SELECT INTO</code>), disable the detection logic → the corresponding test must FAIL (red); restore → PASS (green). CI must break if mutation tests pass while detection logic is disabled. The contract also requires: a positive test per mandatory write pattern, a negative test per pure read pattern, override tests for <code>SELECT INTO</code> and CTE writes, and CI failure when a newly added SQL construct has no test.</li>
+      <li style="padding:3px 0;">The claims matrix maps every reviewer-package claim to concrete evidence files, verification commands, and explicit limitations. "If a claim is not listed there, assume it is not claimed by this package."</li>
+    </ul>
+
+    <h3>Reproduce the current baselines</h3>
+    <div class="tbl-wrap"><table>
+      <tr><th>Command</th><th>Expected baseline (as documented)</th></tr>
+      <tr><td><code>cargo fmt --check; cargo check; cargo test</code></td><td class="ok">PASS (pgwire-era: <code>cargo test pgwire</code> also passes)</td></tr>
+      <tr><td><code>python axis_regression.py --base http://localhost:6543</code></td><td class="ok">Hardening report (2026-05-10): <code>RESULT total=31 passed=31 failed=0</code>; pgwire era (31-SIMPLE-QUERY-POC-RESULTS): <code>65/65</code></td></tr>
+      <tr><td><code>python axis_gate_stress.py --requests 1000 --concurrency 50 --approval-requests 50</code></td><td class="ok">Stress baseline: unexpected result count 0</td></tr>
+      <tr><td><code>python axis_audit_restart_test.py</code></td><td class="ok"><code>[PASS] audit chain continued across restart</code></td></tr>
+      <tr><td><code>python axis_chaos_test.py --pool-requests 2000 --pool-concurrency 100</code></td><td class="ok">HTTP era: <code>CHAOS RESULT total=10 passed=10</code>; pgwire era: <code>14/14</code></td></tr>
+      <tr><td><code>python scripts/verify_pilot_evidence.py</code></td><td class="ok"><code>PILOT_EVIDENCE_VERIFICATION: PASS</code></td></tr>
+      <tr><td><code>python scripts/axis_runtime_smoke.py</code> / <code>axis_runtime_stress.py --concurrency 25 --requests 500 --include-export --include-rate-limit</code></td><td class="ok"><code>AXIS Runtime Stress Validation: PASS</code></td></tr>
+      <tr><td>Real-driver suite (<code>tests/test_pgwire_real_drivers.py</code> with <code>-k prisma</code> / <code>-k jdbc</code>)</td><td class="ok">Full suite 37 tests passed on 2026-07-05</td></tr>
+      <tr><td><code>python scripts/axis_evidence_bundle_verify.py --bundle ...</code></td><td class="ok"><code>AXIS Evidence Bundle Verification: PASS</code> / <code>PASS_WITH_WARNINGS</code></td></tr>
+    </table></div>
+
+    <h3>Hardening report verdict (2026-05-10, "AXIS v1")</h3>
+    <div class="tbl-wrap"><table>
+      <tr><th>Area</th><th>Verdict</th></tr>
+      <tr><td>AXIS v1 runtime</td><td class="ok">PASS</td></tr>
+      <tr><td>Parser bypass corpus baseline</td><td class="ok">PASS</td></tr>
+      <tr><td>Policy regression baseline</td><td class="ok">PASS (31/31)</td></tr>
+      <tr><td>Approval regression baseline</td><td class="ok">PASS</td></tr>
+      <tr><td>Audit-chain restart continuity</td><td class="ok">PASS</td></tr>
+      <tr><td>Corrupt audit fail-fast</td><td class="ok">PASS</td></tr>
+      <tr><td>Chaos / failure-mode baseline</td><td class="ok">PASS (10/10; 14/14 in the pgwire-era run)</td></tr>
+    </table></div>
+    <p>The hardening conclusion is deliberately narrow: this makes AXIS a hardened security core for local pre-execution SQL gate validation, with a meaningful evidence baseline and known failure behavior. It does not make AXIS production-ready.</p>
+
+    <h3>Pass criteria and failure criteria (pilot checklist)</h3>
+    <div class="grid2">
+      <div class="panel">
+        <h4 style="color:var(--active);">Success</h4>
+        <ul style="list-style:none;font-size:13px;">
+          <li style="padding:3px 0;">Risky writes blocked or routed to approval per policy</li>
+          <li style="padding:3px 0;">Reads unaffected where intended</li>
+          <li style="padding:3px 0;">Audit events generated for important decisions</li>
+          <li style="padding:3px 0;">Evidence chain verifies after normal operation</li>
+          <li style="padding:3px 0;">Policy dry-run predicts behavior; rollback works for a stored valid version</li>
+          <li style="padding:3px 0;">Reviewers can reproduce the demo without hidden setup</li>
+        </ul>
+      </div>
+      <div class="panel">
+        <h4 style="color:var(--blocked);">Failure</h4>
+        <ul style="list-style:none;font-size:13px;">
+          <li style="padding:3px 0;">Destructive write allowed contrary to policy</li>
+          <li style="padding:3px 0;">Audit evidence missing for an enforced decision</li>
+          <li style="padding:3px 0;">Evidence chain unverifiable after normal operation</li>
+          <li style="padding:3px 0;">Policy activation leaves the system without a valid policy</li>
+          <li style="padding:3px 0;">Approval-required operation executes before approval; approval bypass succeeds</li>
+          <li style="padding:3px 0;">Decision result unexplained or not traceable to policy/classification</li>
+        </ul>
+      </div>
+    </div>
+    <div class="note red">Benchmark honesty: pilot benchmark results are not a substitute for customer-specific workload testing. Benchmark claims require defined hardware, dataset shape, workload, warmup, repetitions, and measurement methodology. Direct PostgreSQL comparison is performed only on the ALLOW corpus; blocked SQL is never executed directly "for timing" — that would be self-sabotage with timing numbers.</div>
+  </div>
+</section>
+
+<!-- ================= 7. CURRENT LIMITATIONS ================= -->
+<section id="current-limitations" class="anchor">
+  <div class="wrap">
+    <div class="kicker amber">07 · Current Limitations</div>
+    <h2>Implemented today / not implemented yet</h2>
+    <p class="lead">Two columns, no overlap, no hedging. These lists come from the external review summary, claims matrix, known-limitations notes, and PoC guardrails. If something is not listed as implemented, treat it as not implemented.</p>
+
+    <div class="lim-grid">
+      <div class="lim-col done">
+        <h3>✓ Implemented today</h3>
+        <ul>
+          <li>Deterministic policy engine: <code>ALLOW</code> / <code>BLOCK</code> / <code>REQUIRE_APPROVAL</code> with operating modes <code>shadow</code>, <code>approval_first</code>, <code>enforce</code>, <code>emergency_bypass</code></li>
+          <li>PostgreSQL-focused SQL classification, normalization, fingerprinting, scope estimation, risk signals</li>
+          <li>Pre-execution enforcement; unsupported or ambiguous SQL shapes fail closed</li>
+          <li>Approval workflow: no execution before resolution; approvals resolve once; approvals never hold transactions open</li>
+          <li>Hash-chain audit evidence (<code>previous_hash</code>/<code>event_hash</code>), restart continuity, evidence verification endpoints</li>
+          <li>Canonical audit WAL + JSONL projection + disposable derived index; decision traceability (<code>GET /audit/trace</code>)</li>
+          <li>Evidence Bundle V1 export with offline verifier; optional Ed25519 signing; production profile with operator auth on export</li>
+          <li>Policy lifecycle: validation, diff, dry-run (no mutation), immutable versions, expected-hash activation, rollback; manifest-based startup (v0.9)</li>
+          <li>Control Plane (Next.js) with real-mode backend integration; runtime metrics, logs, health, rate limiting, bounded timeouts and pools (production profile)</li>
+          <li>Structured error taxonomy with operator actions (<code>request_timeout</code>, <code>db_timeout</code>, <code>db_pool_exhausted</code>, <code>rate_limited</code>, <code>operator_auth_required</code>, <code>PARSE_REJECTED_UNTRUSTED_INPUT</code>, …)</li>
+          <li>Native pgwire lab: Simple Query interception, real-driver extended-query flows (psycopg3, asyncpg, Prisma, JDBC), byte-level backend mock proof, COPY fail-closed, sensitive-GUC denial, <code>CancelRequest</code> (RFC-032, 2026-07-10)</li>
+          <li>Operator token for mutating lifecycle endpoints; JWT HS256 enterprise demo mode (documented as local/demo auth)</li>
+          <li>Docker Compose local stack; regression/chaos/stress/evidence tooling; Security Classification Contract v1.0 locked and CI-enforced by contract</li>
+        </ul>
+      </div>
+      <div class="lim-col gap">
+        <h3>× Not implemented yet</h3>
+        <ul>
+          <li>Full RBAC / SSO; verified caller and approver identity (identity fields are claimed, not authenticated)</li>
+          <li>TLS/mTLS on the pgwire transport — cleartext only inside a trusted-network boundary (RFC-032, 2026-07-10); no HTTP-gate TLS in the v1 core</li>
+          <li>External KMS / HSM / Vault integration; signed policy distribution</li>
+          <li>Distributed consensus, multi-instance coordination, HA failover, multi-region policy sync</li>
+          <li>External tamper-proof audit ledger / external witnessing (Merkle roots, timestamps, transparency log)</li>
+          <li>Full historical audit-chain verification (restart-boundary continuity only today); WAL reads remain linear</li>
+          <li>Retention, log rotation, archival, compaction; sealed WAL segments; async index rebuild</li>
+          <li>Full Extended Query positive-path acceptance (≥4 major driver stacks without unsafe downgrades); JDBC batch / pipelining (future <code>PIPELINING_SUPPORT</code> phase)</li>
+          <li>PgBouncer validation (session pooling candidate; transaction pooling unsupported); HA approval store; approval store technology undecided per RFC v1.2</li>
+          <li>Lenient in-transaction continuation (AXIS-managed savepoints) — future research only</li>
+          <li>Production TLS connector shared by normal sessions and CancelRequest (RFC-032 future work)</li>
+          <li>Metrics/observability backend, on-call dashboards, long-running soak tests, log rotation</li>
+          <li>Compliance mapping/certification; production deployment hardening; SaaS control plane; dedicated operator audit stream</li>
+          <li>Universal SQLAlchemy dialect support; arbitrary ORM shapes; Prisma Migrate / introspection coverage</li>
+          <li>Second enterprise stack demo (Java/Spring/Hibernate planned, not built)</li>
+        </ul>
+      </div>
+    </div>
+
+    <h3>Documented named limits (regression-covered where noted)</h3>
+    <ul style="font-size:13.5px;padding-left:18px;margin-bottom:14px;">
+      <li style="padding:3px 0;">Stored function/procedure bodies are opaque to wire-level policy (architectural limit for any proxy at the PostgreSQL wire layer; complementary control: native <code>GRANT</code>/<code>REVOKE</code>).</li>
+      <li style="padding:3px 0;"><code>COPY</code> protocol not supported in pgwire mode; fail-closed before bulk transfer.</li>
+      <li style="padding:3px 0;">Sensitive session GUCs (<code>search_path</code>, <code>role</code>, <code>session_authorization</code>, <code>row_security</code>) permanently denied in pgwire mode.</li>
+      <li style="padding:3px 0;">Direct database bypass: AXIS cannot protect traffic that never reaches it; network/IAM/firewall controls are the operator's responsibility.</li>
+      <li style="padding:3px 0;">The current pilot is an HTTP adapter integration, not a transparent driver-level proxy; HTTP demo mode passing does not prove native wire coverage.</li>
+      <li style="padding:3px 0;">Audit durability in real deployments additionally depends on disk reliability, volume config, backup, retention, monitoring, and access controls around evidence storage.</li>
+      <li style="padding:3px 0;">Single-node AXIS deployment is not an HA architecture; audit index is a single JSON file; no enterprise observability pipeline.</li>
+      <li style="padding:3px 0;">Cancellation: registry is memory-only — AXIS restart invalidates all proxy cancel keys; 24-hour TTL per key; multi-instance requires shared protected cancel state.</li>
+      <li style="padding:3px 0;">JWT HS256 demo mode is not enterprise IAM (no rotation, revocation, centralized access audit); SHA-256 manifest validation is local file integrity, not asymmetric signing.</li>
+    </ul>
+  </div>
+</section>
+
+<!-- ================= 8. ROADMAP ================= -->
+<section id="roadmap" class="anchor" style="background:var(--bg-2);">
+  <div class="wrap">
+    <div class="kicker cyan">08 · Roadmap</div>
+    <h2>Next priorities (as ordered by the RFCs and changelogs)</h2>
+    <p class="lead">These items come from the native-PG integration RFC v1.2 production gate, the extended-query roadmap, CancelRequest follow-up work, the audit scaling plan, and the pilot next-steps notes. They are ordered by the gates the RFCs require before production claims.</p>
+
+    <div class="grid2">
+      <div class="panel">
+        <span class="tag red">Gate 1 — before any real OLTP pilot</span>
+        <h3>Extended Query production support</h3>
+        <p style="font-size:13px;">Full Parse/Bind/Execute/Sync positive-path support with prepared statement state machines and portals; phases EQ-0…EQ-5 (discovery → parse tracking → bind tracking → execute → sync/error recovery → driver compatibility). Acceptance: at least four major driver stacks pass ALLOW/BLOCK/APPROVAL/audit tests without unsafe downgrades (targets: psycopg3, asyncpg, node-postgres, Prisma, JDBC/Hibernate, Npgsql, Go pgx, SQLAlchemy). Not optional — most serious production stacks use prepared statements.</p>
+      </div>
+      <div class="panel">
+        <span class="tag red">Gate 2 — transport</span>
+        <h3>Production TLS/mTLS on pgwire</h3>
+        <p style="font-size:13px;">Replace the temporary trusted-network boundary (RFC-032 Scenario A) with one shared backend connector for normal sessions and CancelRequest, certificate and server-name validation, and a consistent TLS requirement on both paths; measure handshake latency before setting the cancel timeout. Client-to-proxy mTLS termination is the preferred enterprise target (mapping cert identity to actor/service identity), with SCRAM strategy and OIDC/LDAP evaluation.</p>
+      </div>
+      <div class="panel">
+        <span class="tag amber">Gate 3 — state</span>
+        <h3>Approval store HA; identity — verified not claimed</h3>
+        <p style="font-size:13px;">Approval store technology and HA posture are undecided in RFC v1.2 and must be selected before multi-AXIS pilots; split-brain must fail closed. Identity work: verified approver and caller identity (mTLS, OIDC/JWKS, KMS), with audit evidence that states which identity was verified vs merely observed.</p>
+      </div>
+      <div class="panel">
+        <span class="tag amber">Gate 4 — evidence</span>
+        <h3>External witnessing + full-chain verification</h3>
+        <p style="font-size:13px;">Publish Merkle roots or head hashes to an external witness (customer-controlled object store, timestamping service, signed transparency log, append-only external ledger) to reduce the "you wrote logs after the fact" objection; implement full historical hash-chain verification; signed bundles mandatory for attribution.</p>
+      </div>
+      <div class="panel">
+        <span class="tag cyan">Operability</span>
+        <h3>Audit ops: sealing, retention, rotation</h3>
+        <p style="font-size:13px;">Sealed WAL segments plus segment indexes (linear WAL reads today), asynchronous index rebuild, retention/compaction/archival with integrity verification before deletion, legal hold, low-watermark alerts, log rotation, and on-call dashboards. Emergency bypass gains a fixed audit-only mode and the reconciliation procedure from RFC-029 (append <code>AXIS_BYPASS_RECONCILIATION_COMPLETED</code>, unverified operations marked, never silently hidden).</p>
+      </div>
+      <div class="panel">
+        <span class="tag cyan">Measurement</span>
+        <h3>Controlled benchmarks; second-stack pilot</h3>
+        <p style="font-size:13px;">Performance measured with defined hardware, dataset shape, workload, warmup, repetitions and methodology — separate ALLOW-path latency from enforcement-only decision latency, exclude human approval time. Build a Java/Spring Boot + Hibernate demo to test whether policy, approval, rollback and audit concepts transfer beyond Python/SQLAlchemy; validate PgBouncer session pooling with <code>server_reset_query</code> semantics.</p>
+      </div>
+      <div class="panel">
+        <span class="tag green">Post-gate</span>
+        <h3>Production pilot checklist</h3>
+        <p style="font-size:13px;">Narrow protected write path, defined policy pack, known schema, agreed rollback/incident procedure, operator ownership (who changes policy, who decides in incidents), log retention expectations, evidence review agreement, and customer environment mapping — then the RFC v1.2 verdict applies: v1.2 is sufficient to guide a disciplined Simple Query lab PoC; it is not sufficient to claim production readiness.</p>
+      </div>
+    </div>
+
+    <div class="note">The RFC v1.2 production gate must be read literally: a real production pilot must not start until Extended Query is implemented and tested for the target driver stack, CancelRequest is implemented or explicitly disabled with customer acceptance, the audit WAL format and verification are stable, approval-store HA posture is defined, identity attribution is accepted, PgBouncer mode is validated, performance and durability modes are chosen, the emergency bypass procedure is rehearsed, and observability dashboards and on-call runbooks exist.</div>
+  </div>
+</section>
+
+</main>
+
+<footer>
+  <p>VARUX AXIS — technical documentation generated from the AXIS documentation repository. All statements traceable to the source files; implemented/not-implemented distinctions are preserved as documented.</p>
+  <p style="margin-top:8px;"><a href="https://varuxcyber.com/axis.html">varuxcyber.com/axis.html</a> · <a href="#top">Back to top</a></p>
+</footer>
+
+<script>
+(function () {
+  var toggle = document.getElementById('nav-toggle');
+  var menu = document.getElementById('mobile-menu');
+  var links = ['#top','#product','#architecture','#control-panel','#security-model','#pilot','#quickstart'];
+  var labels = ['Home','Product','Architecture','Control Panel','Security Model','Pilot','Docs'];
+  menu.innerHTML = links.map(function (h, i) {
+    return '<a href="' + h + '">' + labels[i] + '</a>';
+  }).join('');
+  toggle.addEventListener('click', function () {
+    menu.style.display = menu.style.display === 'flex' ? 'none' : 'flex';
+  });
+  menu.addEventListener('click', function () { menu.style.display = 'none'; });
+})();
+</script>
+</body>
+</html>
