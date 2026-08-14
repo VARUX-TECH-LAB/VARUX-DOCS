@@ -233,8 +233,8 @@ td code{white-space:nowrap}
   <main class="content" id="content">
     AXIS Documentation / Security / <strong>mTLS &amp; Network</strong>
     <h1>mTLS &amp; Network</h1>
-<div class="statusline"><span class="badge b-st-part">Partial &mdash; mTLS not completed</span><span class="badge b-ver">Ports 6543 / 5432 / 3000</span></div>
-<p class="lead">The v0.6 pilot runs over HTTP on the trusted lab network. TLS configuration variables exist; a complete, reviewed mTLS story is a documented production requirement, not a shipped feature.</p>
+<div class="statusline"><span class="badge b-st-impl">mTLS implemented</span><span class="badge b-st-ver">Negative matrix 18/18</span><span class="badge b-ver">Ports 6543 / 5432 / 3000</span></div>
+<p class="lead">Client-to-AXIS and AXIS-to-backend TLS/mTLS are implemented on the shared write-path transport (native pgwire forwarder, CancelRequest path, and API DbPool). The negative mTLS matrix passes 18/18 &mdash; plaintext and certificate-verification-bypass mutations fail closed. Cleartext traffic is a lab-only configuration, not a supported production mode.</p>
 
 <h2 id="topology">Topology</h2>
 <div class="fig">
@@ -254,19 +254,19 @@ td code{white-space:nowrap}
     <rect x="30" y="40" width="180" height="60" class="nb"/>
     <text x="120" y="62" text-anchor="middle" class="nt">Application</text>
     <text x="120" y="78" text-anchor="middle" class="nt3">HTTP :6543 (POST /query)</text>
-    <text x="120" y="92" text-anchor="middle" class="nt2">plaintext in pilot</text>
+    <text x="120" y="92" text-anchor="middle" class="nt2">mTLS client cert</text>
     <rect x="330" y="40" width="180" height="60" class="ng"/>
     <text x="420" y="62" text-anchor="middle" class="nt">AXIS Gate</text>
     <text x="420" y="78" text-anchor="middle" class="nt3">LISTEN_ADDR :6543</text>
-    <text x="420" y="92" text-anchor="middle" class="nt2">pgwire lab :6544 (disabled)</text>
+    <text x="420" y="92" text-anchor="middle" class="nt2">pgwire :6544 (TLS/mTLS)</text>
     <line x1="210" y1="70" x2="328" y2="70" class="ne"/>
-    <text x="269" y="62" text-anchor="middle" class="neb">API</text>
+    <text x="269" y="62" text-anchor="middle" class="neb">TLS/mTLS</text>
     <rect x="660" y="40" width="180" height="60" class="nb"/>
     <text x="750" y="62" text-anchor="middle" class="nt">PostgreSQL</text>
     <text x="750" y="78" text-anchor="middle" class="nt3">:5432 &middot; axis_executor</text>
     <text x="750" y="92" text-anchor="middle" class="nt2">protected target</text>
     <line x1="510" y1="70" x2="658" y2="70" class="ne"/>
-    <text x="584" y="62" text-anchor="middle" class="neb">pool</text>
+    <text x="584" y="62" text-anchor="middle" class="neb">TLS/mTLS</text>
     <rect x="330" y="150" width="180" height="60" class="ng"/>
     <text x="420" y="172" text-anchor="middle" class="nt">Control Plane</text>
     <text x="420" y="188" text-anchor="middle" class="nt3">:3000 (Next.js)</text>
@@ -284,7 +284,7 @@ td code{white-space:nowrap}
     <line x1="840" y1="150" x2="840" y2="120" class="ne" style="stroke:#c0392b"/>
     <text x="30" y="250" class="nt2">Protection boundary: AXIS controls the HTTP write path and (lab) the wire path. It cannot control credentials or networks that bypass it.</text>
   </svg>
-  <div class="fig-cap">Pilot networking: HTTP API on :6543, PostgreSQL on :5432, Control Plane on :3000; direct :5432 access is the documented bypass to close.</div>
+  <div class="fig-cap">Transport posture: TLS/mTLS on client-to-AXIS and AXIS-to-backend paths; direct :5432 access is the documented bypass to close.</div>
 </div>
 
 <h2 id="ports">Ports and listeners</h2>
@@ -300,28 +300,29 @@ td code{white-space:nowrap}
   </tbody>
 </table></div>
 
-<h2 id="tls-vars">TLS variables</h2>
+<h2 id="tls-vars">TLS / mTLS variables (hardened core)</h2>
 <div class="tw"><table>
-  <thead><tr><th>Variable</th><th>Default</th><th>Notes</th></tr></thead>
+  <thead><tr><th>Variable</th><th>Notes</th></tr></thead>
   <tbody>
-    <tr><td><code>AXIS_TLS_ENABLED</code></td><td>false</td><td>Master TLS switch; false in the v0.6 pilot</td></tr>
-    <tr><td><code>AXIS_TLS_CERT_PATH</code> / <code>AXIS_TLS_KEY_PATH</code></td><td>&mdash;</td><td>Certificate and key file paths</td></tr>
-    <tr><td><code>AXIS_TLS_CA_PATH</code></td><td>&mdash;</td><td>Client CA for mutual TLS validation</td></tr>
-    <tr><td><code>AXIS_TLS_REQUIRE_CLIENT_CERT</code></td><td>false</td><td>Require and validate a client certificate (mTLS)</td></tr>
-    <tr><td><code>AXIS_TLS_MIN_VERSION</code></td><td>&mdash;</td><td>Minimum TLS version (e.g. <code>1.2</code>)</td></tr>
-    <tr><td><code>PGSSLMODE</code>-related / <code>DATABASE_URL</code> options</td><td>&mdash;</td><td>AXIS &rarr; PostgreSQL connection security; not part of the complete v0.6 story</td></tr>
+    <tr><td><code>AXIS_TLS_REQUIRE_CLIENT_CERT</code></td><td>Require and validate a client certificate (mTLS); production profile rejects <code>false</code></td></tr>
+    <tr><td><code>AXIS_TLS_CLIENT_CA_BUNDLE_PATH</code> / <code>AXIS_TLS_SERVER_CERT_PATH</code> / <code>AXIS_TLS_SERVER_KEY_PATH</code></td><td>Client-to-AXIS TLS termination material</td></tr>
+    <tr><td><code>AXIS_TLS_UPSTREAM_CLIENT_CERT_PATH</code> / <code>AXIS_TLS_UPSTREAM_CLIENT_KEY_PATH</code> / <code>AXIS_TLS_UPSTREAM_CA_BUNDLE_PATH</code></td><td>AXIS-to-PostgreSQL mTLS material (upstream)</td></tr>
+    <tr><td><code>AXIS_PG_HBA_PROXY_CIDR</code> / <code>AXIS_ENFORCE_PG_HBA_BASELINE</code> / <code>AXIS_PG_HBA_CHECK_INTERVAL_MINUTES</code></td><td>pg_hba proxy-only <code>hostssl/cert</code> baseline enforcement; drift &rarr; signed <code>AXIS_PG_HBA_DRIFT_DETECTED</code> audit event</td></tr>
+    <tr><td><code>AXIS_TLS_MIN_VERSION</code></td><td>Minimum TLS version (e.g. <code>1.2</code>)</td></tr>
   </tbody>
 </table></div>
 
-<h2 id="status">mTLS status</h2>
+<h2 id="status">mTLS status (2026-08)</h2>
 <div class="tw"><table>
   <thead><tr><th>Item</th><th>Status</th><th>Detail</th></tr></thead>
   <tbody>
-    <tr><td>Server TLS on AXIS listener</td><td><span class="badge b-st-part">Partial</span></td><td>Variables exist; not validated in the v0.6 pilot</td></tr>
-    <tr><td>Client certificate (mTLS) enforcement</td><td><span class="badge b-st-part">Partial</span></td><td><code>AXIS_TLS_REQUIRE_CLIENT_CERT</code> exists; complete mTLS review pending</td></tr>
+    <tr><td>Client-to-AXIS TLS/mTLS</td><td><span class="badge b-st-impl">Implemented</span></td><td>Shared write-path transport; <code>AXIS_TLS_REQUIRE_CLIENT_CERT</code> enforced</td></tr>
+    <tr><td>AXIS-to-backend mTLS</td><td><span class="badge b-st-impl">Implemented</span></td><td>Upstream client cert + CA bundle on the native pgwire forwarder and API DbPool</td></tr>
+    <tr><td>CancelRequest path</td><td><span class="badge b-st-impl">Implemented</span></td><td>Runs over the same mTLS transport (RFC-032 status update 2026-08)</td></tr>
+    <tr><td>Negative mTLS matrix</td><td><span class="badge b-st-ver">18/18 passed</span></td><td>Plaintext and certificate-verification-bypass mutations (invalid CA, hostname-only bypass, disabled verification) all fail closed</td></tr>
+    <tr><td>Cleartext traffic</td><td><span class="badge b-st-lim">Lab-only</span></td><td>Not a supported production mode; pg_hba baseline blocks proxy-only hostssl/cert elsewhere</td></tr>
     <tr><td>Control Plane HTTPS</td><td><span class="badge b-st-impl">Implemented</span></td><td>Production mode uses HTTPS; pilot runs HTTP on localhost</td></tr>
-    <tr><td>AXIS &rarr; PostgreSQL TLS</td><td><span class="badge b-st-part">Partial</span></td><td>Variables exist; not part of the complete v0.6 story</td></tr>
-    <tr><td>Production mTLS requirement</td><td><span class="badge b-st-pln">Required</span></td><td>Documented review gate: mTLS between AXIS and clients before production</td></tr>
+    <tr><td>Production posture</td><td><span class="badge b-st-pln">Required</span></td><td>Certificate rotation, expiry monitoring and key management (KMS/OIDC) remain enterprise requirements</td></tr>
   </tbody>
 </table></div>
 
@@ -334,7 +335,7 @@ td code{white-space:nowrap}
 
 <div class="cal cal-warn">
   <svg class="ci" viewBox="0 0 16 16" fill="#d4a72c"><path d="M8 1L1 14h14L8 1zm0 4.2l.9 4.1H7.1L8 5.2zM8 12.2a.9.9 0 1 1 0-1.8.9.9 0 0 1 0 1.8z"/></svg>
-  <div><p>The pilot runs on a trusted lab network over HTTP. For any production use, complete the mTLS and TLS-to-PostgreSQL review gates first.</p></div>
+  <div><p>mTLS is implemented and the negative matrix passes (18/18), but cleartext remains lab-only. Production deployments must enforce <code>AXIS_TLS_REQUIRE_CLIENT_CERT=true</code>, keep PostgreSQL host-only (pg_hba baseline), and complete certificate lifecycle management.</p></div>
 </div>
 
 <p>Related: <a href="security-model.html">Security Model</a> &middot; <a href="deployment.html">Deployment</a> &middot; <a href="security-review.html">Security Review</a></p>
@@ -357,7 +358,7 @@ td code{white-space:nowrap}
 
 <script>
 var SEARCH_INDEX=[
-{f:"index.html",t:"Overview",s:"AXIS is a deterministic control layer for PostgreSQL write paths. Decisions ALLOW/BLOCK/REQUIRE_APPROVAL, status summary, v0.6 pilot readiness.",k:"axis overview what is not deterministic write path control allow block require approval v0.6 pilot status"},
+{f:"index.html",t:"Overview",s:"AXIS is a deterministic control layer for PostgreSQL write paths. Decisions ALLOW/BLOCK/REQUIRE_APPROVAL, status summary, mTLS implemented, v0.6 pilot readiness.",k:"axis overview what is not deterministic write path control allow block require approval v0.6 pilot status mtls"},
 {f:"getting-started.html",t:"Getting Started",s:"Five-minute evaluation: start the stack, health check, first safe read, blocked delete, approval flow, control plane.",k:"getting started quickstart docker compose health query curl demo first steps"},
 {f:"installation.html",t:"Installation",s:"Prerequisites, clone, static checks, Docker Compose stack, direct cargo run, Control Plane frontend, ports.",k:"installation install docker compose cargo rust node npm prerequisites ports 6543"},
 {f:"configuration.html",t:"Configuration",s:"Environment variables and defaults: core, runtime hardening, DB pool, rate limits, audit, evidence signing, operator auth, TLS, pgwire.",k:"configuration environment variables env defaults AXIS_ runtime profile operator token rate limit timeout policy manifest audit wal signing tls pgwire"},
@@ -369,23 +370,23 @@ var SEARCH_INDEX=[
 {f:"audit-evidence.html",t:"Audit & Evidence",s:"Audit WAL, JSONL projection, event_hash and previous_hash chain, restart continuity, verification, Evidence Bundle V1, derived index.",k:"audit evidence wal jsonl hash chain event_hash previous_hash verify bundle export canonical tamper restart continuity index"},
 {f:"operating-modes.html",t:"Operating Modes",s:"shadow, approval_first, enforce, emergency bypass; mode semantics and dry-run preview behavior.",k:"operating modes shadow approval_first enforce emergency bypass observe dry run mode OPERATING_MODE"},
 {f:"security-model.html",t:"Security Model",s:"Deterministic enforcement, fail-safe defaults, durable evidence, approval boundaries, bypass control, threat model, trust boundaries, known gaps.",k:"security model deterministic fail-safe fail-closed durable evidence bypass control threat model trust boundary non-goals gaps"},
-{f:"mtls-network.html",t:"mTLS & Network",s:"Transport security posture, TLS and mTLS configuration, upstream mTLS, pg_hba baseline, network topology, secrets redaction.",k:"mtls tls network transport pg_hba client cert upstream ca bundle redaction secret hygiene topology ssl"},
+{f:"mtls-network.html",t:"mTLS & Network",s:"mTLS implemented 2026-08: client-to-AXIS and AXIS-to-backend, negative matrix 18/18, TLS configuration, upstream mTLS, pg_hba baseline, network topology, secrets redaction.",k:"mtls tls network transport pg_hba client cert upstream ca bundle redaction secret hygiene topology ssl implemented 18/18"},
 {f:"transactions.html",t:"Transactions",s:"Rollback plus explicit retry, no open transactions during approval, savepoint recovery, execution unknown, native transaction state machine.",k:"transactions rollback retry savepoint execution_state unknown state machine idle in transaction poisoned safety rollback multi statement"},
-{f:"orm-extended-query.html",t:"ORM & Extended Query",s:"SQLAlchemy adapter, driver matrix psycopg3 asyncpg Prisma pgJDBC, batch limits, COPY rejection, extended query roadmap EQ0-EQ5.",k:"orm sqlalchemy psycopg asyncpg prisma jdbc driver matrix extended query bind execute parse batch pipelining prepared copy"},
-{f:"native-pg-protocol.html",t:"Native PG Wire Protocol",s:"Simple Query lab POC results, protocol boundaries, error response contract, cancel request RFC-032, red lines, production gates.",k:"native pg wire protocol simple query poc psql errorresponse sqlstate cancel request backendkeydata red lines 6544 pgwire"},
+{f:"orm-extended-query.html",t:"ORM & Extended Query",s:"SQLAlchemy adapter, driver matrix psycopg3 asyncpg Prisma pgJDBC, JDBC batch enabled with bounded size (Hibernate 6), COPY rejection, extended query roadmap EQ0-EQ5.",k:"orm sqlalchemy psycopg asyncpg prisma jdbc driver matrix extended query bind execute parse batch pipelining prepared copy hibernate"},
+{f:"native-pg-protocol.html",t:"Native PG Wire Protocol",s:"Simple Query lab POC results, protocol boundaries, error response contract, cancel request RFC-032 details, mTLS on wire path, JDBC batch, red lines, production gates.",k:"native pg wire protocol simple query poc psql errorresponse sqlstate cancel request backendkeydata 57014 red lines 6544 pgwire mtls batch"},
 {f:"api-reference.html",t:"API Reference",s:"All HTTP endpoints: /query, /approvals, /audit, /policy lifecycle, /evidence, /runtime. Example payloads and outcomes.",k:"api reference endpoints query approvals audit policy validate diff dry run activate rollback evidence verify runtime health logs curl"},
 {f:"error-codes.html",t:"Error Codes",s:"Full error code registry by category: request, sql, policy, approval, audit, audit_index, database, auth, runtime, evidence, internal.",k:"error codes registry sql policy approval audit database auth runtime evidence severity safe_to_retry operator_action"},
 {f:"deployment.html",t:"Deployment",s:"Compose topologies, production-like profile, enterprise boundary, blocked topology, KMS/OIDC direction, native topologies A-F, PgBouncer.",k:"deployment topology compose profile enterprise boundary pgBouncer kms oidc multi-axis failover kubernetes sidecar gateway private network"},
 {f:"operations.html",t:"Operations",s:"Runbook: start stop, health, metrics, logs, audit recovery, approval recovery, PostgreSQL recovery, evidence export, secret hygiene.",k:"operations runbook health metrics logs recovery backup audit evidence export secrets volumes docker compose"},
 {f:"failure-recovery.html",t:"Failure & Recovery",s:"Failure mode matrix, fail-fast conditions, restart semantics, dispatch intent markers, emergency bypass procedure, reconciliation.",k:"failure recovery fail-fast fail-safe chaos restart recovery dispatch intent execution unknown emergency bypass reconciliation"},
 {f:"troubleshooting.html",t:"Troubleshooting",s:"Symptom to cause to verify to resolution: startup, connection, mTLS, policy, approval, audit, transaction and ORM problems.",k:"troubleshooting symptom cause resolution audit evidence invalid approval 401 policy checksum audit unwritable db down jdbc batch copy stale index"},
-{f:"testing-verification.html",t:"Testing & Verification",s:"Regression 31/31, chaos 10/10, stress, audit restart, real-driver 37 tests, POC 65/65 14/14, evidence verification semantics.",k:"testing verification regression chaos stress real driver audit restart evidence verify smoke pytest cargo test full_hash"},
+{f:"testing-verification.html",t:"Testing & Verification",s:"Regression 31/31, chaos 10/10, stress, audit restart, real-driver 37 tests, JDBC batch, negative mTLS matrix 18/18, POC 65/65 14/14, evidence verification semantics.",k:"testing verification regression chaos stress real driver audit restart evidence verify smoke pytest cargo test full_hash mtls batch"},
 {f:"security-review.html",t:"Security Review",s:"Claims matrix, anti-claims, bypass boundary, attack checklist, reviewer package modes, feedback form, red flags.",k:"security review reviewer claims matrix anti-claims attack checklist bypass boundary no-run mode red flags"},
-{f:"limitations.html",t:"Limitations",s:"Honest boundaries: HTTP adapter model, direct bypass, wire protocol, JDBC batch, COPY, prepared sessions, identity, HA, compliance.",k:"limitations not implemented out of scope direct bypass wire protocol batch copy prepared identity rbac sso kms ledger compliance v0.6"},
+{f:"limitations.html",t:"Limitations",s:"Honest boundaries: HTTP adapter model, direct bypass, wire protocol, bounded JDBC batch, COPY, prepared sessions, identity, HA, compliance.",k:"limitations not implemented out of scope direct bypass wire protocol bounded batch copy prepared identity rbac sso kms ledger compliance v0.6"},
 {f:"pilot.html",t:"Pilot",s:"Pilot goal, evaluation flow, pre-pilot requirements, scope, out of scope, success and failure criteria, benchmark philosophy.",k:"pilot checklist scope success criteria failure criteria benchmark latency non-production staging evidence"},
 {f:"faq.html",t:"FAQ",s:"Answers for developers, DBAs and security engineers: what, how, safety, evidence, ORM, errors, deployment, limits.",k:"faq questions answers what is axis how install connect orm evidence verify error direct bypass production ready"},
 {f:"glossary.html",t:"Glossary",s:"Terms: WAL, JSONL projection, hash chain, event_hash, previous_hash, approval, fail-safe, fail-closed, GUC, manifest, evidence.",k:"glossary terms definitions wal jsonl hash chain event_hash approval fail-safe fail-closed guc manifest evidence bundle"},
-{f:"changelog.html",t:"Changelog",s:"Milestones v0.4 to v1, native-PG RFC v1.1 and v1.2 changes, RFC-032 CancelRequest, classification contract v1.0.",k:"changelog version history v0.4 v0.5 v0.6 v0.8 v0.9 v1 rfc v1.1 v1.2 cancelrequest contract changelog"}
+{f:"changelog.html",t:"Changelog",s:"Milestones v0.4 to v1, 2026-08 mTLS and JDBC batch, native-PG RFC v1.1 and v1.2 changes, RFC-032 CancelRequest, classification contract v1.0.",k:"changelog version history v0.4 v0.5 v0.6 v0.8 v0.9 v1 mtls jdbc batch rfc v1.1 v1.2 cancelrequest contract changelog"}
 ];
 (function(){
   var page=(location.pathname.split('/').pop()||'index.html');
